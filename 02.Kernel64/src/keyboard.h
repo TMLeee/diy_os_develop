@@ -25,8 +25,9 @@
 #define KEY_NONE			0x00
 #define KEY_ENTER			'\n'
 #define KEY_TAB				'\t'
-#define KEY_ESC				0x18
+#define KEY_ESC				0x1B
 #define KEY_BACKSPACE		0x08
+
 #define KEY_CTRL			0x81
 #define KEY_LSHIFT			0x82
 #define KEY_RSHIFT			0x83
@@ -69,8 +70,6 @@ typedef struct kKetMapEntStruct {
 	BYTE ucCombCode;	// Shift, Caps Lock과 조합되는 ASCII
 }KeyMapEnt_t;
 
-#pragma pop
-
 
 // 키보드 상태를 관리하는 자료구조
 typedef struct kKeyboardMagStruct {
@@ -84,6 +83,10 @@ typedef struct kKeyboardMagStruct {
 	BOOL ucExtCodeIn;
 	int iSkipCountForPause;
 }KeyBoardMag_t;
+
+#pragma pack(pop)
+
+
 
 // 함수
 BOOL kIsOutputBufferFull(void);

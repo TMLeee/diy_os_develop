@@ -22,6 +22,7 @@ kInPortByte:
 
 ; 포트에 1바이트를 씀
 ; void kOutPortByte(WORD wPort, BYTE ucData)
+kOutPortByte:
 	push rdx
 	push rax
 

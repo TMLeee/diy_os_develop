@@ -218,7 +218,7 @@ BOOL kIsAlphabetScanCode(BYTE ucScanCode)
 BOOL kIsNumOrSymbolScanCode(BYTE ucScanCode)
 {
 	// 변환 테이블 값을 읽어 숫자나 범위인지 확인 (스캔 코드 2-53)에서 알파벳이 아니면
-	if( (2<=ucScanCode) && (ucScanCode <= 53) && (FALSE == kIsAlphabetScanCode(ucScanCode))) {
+	if( (2 <= ucScanCode) && (ucScanCode <= 53) && (FALSE == kIsAlphabetScanCode(ucScanCode))) {
 		return TRUE;
 	}
 	return FALSE;
@@ -282,10 +282,95 @@ void UpdateCombinationKeyStatusAndLED(BYTE ucScanCode)
 	BOOL ucDown;
 	BYTE ucDownScanCode;
 	BOOL ucLEDStatusChanged = FALSE;
+
+	// 키 눌림, 떨어짐 여부 확인
+	if(ucScanCode & 0x80) {
+		ucDown = FALSE;
+		ucDownScanCode = ucScanCode & 0x7F;
+	}
+	else {
+		ucDown = TRUE;
+		ucDownScanCode = ucScanCode;
+	}
+
+	// 조합 키 검색
+	// Shift
+	if((42 == ucDownScanCode) || (54 == ucDownScanCode)) {
+		gtKeyboardManager.ucShiftDown = ucDown;
+	}
+	// Caps Lock
+	else if((58 == ucDownScanCode) && (TRUE == ucDown)) {
+		gtKeyboardManager.ucCapLockOn ^= TRUE;
+		ucLEDStatusChanged = TRUE;
+	}
+	// Number Lock
+	else if((69 == ucDownScanCode) && (TRUE == ucDown)) {
+		gtKeyboardManager.ucNumLockOn ^= TRUE;
+		ucLEDStatusChanged = TRUE;
+	}
+	// Scroll Lock
+	else if((70 == ucDownScanCode) && (TRUE == ucDown)) {
+		gtKeyboardManager.ucScrollLockOn ^= TRUE;
+		ucLEDStatusChanged = TRUE;
+	}
+
+
+	// LED 상태 변경이 필요한 경우
+	if(TRUE == ucLEDStatusChanged) {
+		kChangeKeyboardLED(gtKeyboardManager.ucCapLockOn, gtKeyboardManager.ucNumLockOn, gtKeyboardManager.ucScrollLockOn);
+	}
 }
 
 
 BOOL kConvertScanCodeToASCIICode(BYTE ucScanCode, BYTE* poUcASCIICode, BOOL* poUcFlags)
 {
+	BOOL ucUseCombKey;
 
+	// 이전에 Pause 키를 수신하였다면
+	if(0 < gtKeyboardManager.iSkipCountForPause) {
+		--gtKeyboardManager.iSkipCountForPause;
+		return FALSE;
+	}
+
+	// Pause 키는 별도 처리
+	if(0xE1 == ucScanCode) {
+		*poUcASCIICode = KEY_PAUSE;
+		*poUcFlags = KEY_FLAG_DOWN;
+		gtKeyboardManager.iSkipCountForPause = KEY_SKIP_CNT_FOR_PAUSE;
+		return TRUE;
+	}
+	// 확장키 코드인 경우
+	else if(0xE0 == ucScanCode) {
+		gtKeyboardManager.ucExtCodeIn = TRUE;
+		return FALSE;
+	}
+
+	// 조합키 반환 여부 확인
+	ucUseCombKey = kIsUseCombinedCode(ucScanCode);
+
+	// 키 값 지정
+	if(TRUE == ucUseCombKey) {
+		*poUcASCIICode = gtKeyMapTbl[ucScanCode & 0x7F].ucCombCode;
+	}
+	else {
+		*poUcASCIICode = gtKeyMapTbl[ucScanCode & 0x7F].ucNormalCode;
+	}
+
+	// 확장 키 여부 확인
+	if(TRUE == gtKeyboardManager.ucExtCodeIn) {
+		*poUcFlags = KET_FLAG_EXTENDED_KEY;
+		gtKeyboardManager.ucExtCodeIn = FALSE;
+	}
+	else {
+		*poUcFlags = 0;
+	}
+
+	// 눌림 상태 갱신
+	if((ucScanCode & 0x80) == 0) {
+		*poUcFlags |= KEY_FLAG_DOWN;
+	}
+
+	// 조합키 눌림 상태 갱신
+	UpdateCombinationKeyStatusAndLED(ucScanCode);
+	return TRUE;
 }
