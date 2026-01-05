@@ -7,6 +7,7 @@
 
 #include "types.h"
 #include "keyboard.h"
+#include "descriptor.h"
 
 void kPrintString(int x, int y, const char* str);
 
@@ -17,17 +18,31 @@ void main(void)
 	BYTE ucTmp;
 	int i=0;
 
-	kPrintString(0, 10, "IA-32e Mode Kernel Start............[ OK ]");
-	kPrintString(0, 11, "Initializing Keyboard Interface.....[    ]");
+	kPrintString(0, 10, "IA-32e Mode Kernel Start ...........[ OK ]");
+	kPrintString(0, 11, "Initializing GDT....................[    ]");
+	kInitGDTTableAndTSS();
+	kLoadGDTR(GDTR_START_ADDR);
+	kPrintString(37, 11, " OK ");
+
+	kPrintString(0, 12, "Initializing TSS Segment ...........[    ]");
+	kLoadTR(GDT_TSS_SEGMENT);
+	kPrintString(37, 12, " OK ");
+
+
+	kPrintString(0, 13, "Initializing IDT ...................[    ]");
+	kInitTDTTable();
+	kLoadIDTR(IDTR_START_ADDR);
+	kPrintString(37, 13, " OK ");
 
 	// 키보드 활성화
+	kPrintString(0, 14, "Initializing Keyboard Interface ....[    ]");
 	if(TRUE == kEnableKeyboard()) {
-		kPrintString(37, 11, " OK ");
+		kPrintString(37, 14, " OK ");
 		kChangeKeyboardLED(FALSE, FALSE, FALSE);
 	}
 	else {
-		kPrintString(37, 11, "Fail");
-		kPrintString(0, 12, "Fail to initializing Keyboard.");
+		kPrintString(37, 14, "Fail");
+		kPrintString(0, 15, "Fail to initializing Keyboard.");
 		while(1);
 	}
 
@@ -40,8 +55,12 @@ void main(void)
 			// 키 정보 확인
 			if(TRUE == kConvertScanCodeToASCIICode(ucTmp, &(vcTmp[0]), &ucFlag)) {
 				// 눌린 키를 화면에 출력
-				if(ucFlag & KEY_FLAG_DOWN) {
-					kPrintString(i++, 12, vcTmp);
+				// 문자만 출력
+				if((32 <= vcTmp[0]) && (vcTmp[0] <= 126)) {
+					if(ucFlag & KEY_FLAG_DOWN) {
+						kPrintString(i++, 16, vcTmp);
+						ucTmp /= 0;
+					}
 				}
 			}
 

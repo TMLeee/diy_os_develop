@@ -3,7 +3,7 @@
 SECTION .text
 
 ; C언어와 연결
-global kInPortByte, kOutPortByte
+global kInPortByte, kOutPortByte, kLoadGDTR, kLoadTR, kLoadIDTR
 
 ; 포트로부터 1바이트를 읽어옴
 ; BYTE kInPortByte(WORD wPort)
@@ -34,4 +34,25 @@ kOutPortByte:
 
 	pop rax
 	pop rdx
+	ret
+
+
+; GDTR 레지스터에 GDT 등록
+; void kLoadGDTR(QWORD qwGDTRAddr
+kLoadGDTR:
+	lgdt [ rdi ]
+	ret
+
+
+; TR 레지스터에 TSS 등록
+; void kLoadTR(WORD wTSSSegOfs)
+kLoadTR:
+	ltr di
+	ret
+
+
+; IDTR 레지스터에 IDT 등록
+; void kLoadIDTR(QWORD qwIDTRAddr)
+kLoadIDTR:
+	lidt [ rdi ]
 	ret

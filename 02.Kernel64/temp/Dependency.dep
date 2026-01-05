@@ -1,3 +1,7 @@
+descriptor.o: ../src/descriptor.c ../src/descriptor.h ../src/types.h \
+ ../src/assembly_utils.h ../src/utility.h
 keyboard.o: ../src/keyboard.c ../src/types.h ../src/assembly_utils.h \
  ../src/keyboard.h
-main.o: ../src/main.c ../src/types.h ../src/keyboard.h
+main.o: ../src/main.c ../src/types.h ../src/keyboard.h \
+ ../src/descriptor.h ../src/assembly_utils.h
+utility.o: ../src/utility.c ../src/utility.h ../src/types.h

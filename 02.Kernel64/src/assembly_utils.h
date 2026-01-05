@@ -12,6 +12,9 @@
 
 BYTE kInPortByte(WORD wPort);
 void kOutPortByte(WORD wPort, BYTE ucData);
+void kLoadGDTR(QWORD qwGDTRAddr);
+void kLoadTR(WORD wTSSSegOfs);
+void kLoadIDTR(QWORD qwIDTRAddr);
 
 
 #endif /* 02_KERNEL64_SRC_ASSEMBLY_UTILS_H_ */
