@@ -62,6 +62,10 @@
 #define KEY_PAUSE			0xA0
 
 
+// 키 큐에 대한 메크로
+#define KEY_MAX_QUEUE_SIZE	100
+
+
 #pragma pack(push, 1)
 
 // 스캔 코드 테이블 구성 항목
@@ -84,6 +88,14 @@ typedef struct kKeyboardMagStruct {
 	int iSkipCountForPause;
 }KeyBoardMag_t;
 
+
+// 키 큐에 삽입될 데이터 구조체
+typedef struct kKeyDataStruct {
+	BYTE ucScanCode;
+	BYTE ucASCIICode;
+	BYTE ucFlags;
+}KeyData_t;
+
 #pragma pack(pop)
 
 
@@ -91,6 +103,7 @@ typedef struct kKeyboardMagStruct {
 // 함수
 BOOL kIsOutputBufferFull(void);
 BOOL kIsInputBufferFull(void);
+BOOL kWaitForACKAndPutOtherScanCode(void);
 BOOL kEnableKeyboard(void);
 BYTE kGetKeyboardScanCode(void);
 BOOL kChangeKeyboardLED(BOOL ucCapsLockOn, BOOL bNumLockOn, BOOL bScrollLockOn);
@@ -102,6 +115,10 @@ BOOL kIsNumPadScanCode(BYTE ucScanCode);
 BOOL kIsUseCombinedCode(BYTE ucScanCode);
 void UpdateCombinationKeyStatusAndLED(BYTE ucScanCode);
 BOOL kConvertScanCodeToASCIICode(BYTE ucScanCode, BYTE* poUcASCIICode, BOOL* poUcFlags);
+BOOL kInitializeKeyboard(void);
+BOOL kConvertScanCodeAndPutQueue(BYTE ucScanCode);
+BOOL kGetKeyFromKeyQueue(KeyData_t* poData);
+
 
 const static KeyMapEnt_t gtKeyMapTbl[KEY_MAP_TBL_MAX_CNT] = {
 /* 0	*/	{KEY_NONE,		KEY_NONE		},

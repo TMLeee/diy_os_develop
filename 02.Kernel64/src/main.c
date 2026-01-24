@@ -8,6 +8,7 @@
 #include "types.h"
 #include "keyboard.h"
 #include "descriptor.h"
+#include "pic.h"
 
 void kPrintString(int x, int y, const char* str);
 
@@ -17,6 +18,7 @@ void main(void)
 	BYTE ucFlag;
 	BYTE ucTmp;
 	int i=0;
+	KeyData_t tKeyData;
 
 	kPrintString(0, 10, "IA-32e Mode Kernel Start ...........[ OK ]");
 	kPrintString(0, 11, "Initializing GDT....................[    ]");
@@ -36,7 +38,7 @@ void main(void)
 
 	// 키보드 활성화
 	kPrintString(0, 14, "Initializing Keyboard Interface ....[    ]");
-	if(TRUE == kEnableKeyboard()) {
+	if(TRUE == kInitializeKeyboard()) {
 		kPrintString(37, 14, " OK ");
 		kChangeKeyboardLED(FALSE, FALSE, FALSE);
 	}
@@ -46,24 +48,26 @@ void main(void)
 		while(1);
 	}
 
-	while(1) {
-		// 출력 버퍼에 데이터가 있는 경우
-		if(TRUE == kIsOutputBufferFull()) {
-			// 출력 버퍼를 읽어옴
-			ucTmp = kGetKeyboardScanCode();
+	// PIC Controller 초기화
+	kPrintString(0, 15, "Initializing PIC Controller ........[    ]");
+	kInitializePIC();
+	kMaskPICInterrupt(0);
+	kEnableInterrupt();
+	kPrintString(37, 15, " OK ");
 
-			// 키 정보 확인
-			if(TRUE == kConvertScanCodeToASCIICode(ucTmp, &(vcTmp[0]), &ucFlag)) {
-				// 눌린 키를 화면에 출력
-				// 문자만 출력
-				if((32 <= vcTmp[0]) && (vcTmp[0] <= 126)) {
-					if(ucFlag & KEY_FLAG_DOWN) {
-						kPrintString(i++, 16, vcTmp);
-						ucTmp /= 0;
-					}
+	while(1) {
+		// 키 큐 확인
+		if(TRUE == kGetKeyFromKeyQueue(&tKeyData)) {
+			if(tKeyData.ucFlags & KEY_FLAG_DOWN) {
+				vcTmp[0] = tKeyData.ucASCIICode;
+				kPrintString(++i, 16, vcTmp);
+
+				// Divide 예외를 발생시킴
+				if('0' == vcTmp[0]) {
+					BYTE ucTmp = 1;
+					ucTmp = ucTmp / 0;
 				}
 			}
-
 		}
 	}
 }

@@ -8,8 +8,12 @@
 #include "types.h"
 #include "assembly_utils.h"
 #include "keyboard.h"
+#include "queue.h"
+#include "utility.h"
 
 static KeyBoardMag_t gtKeyboardManager = {0,};
+static QUEUE gtKeyQueue;
+static KeyData_t gtKeyQueueBuff[KEY_MAX_QUEUE_SIZE];
 
 
 BOOL kIsOutputBufferFull(void)
@@ -32,9 +36,40 @@ BOOL kIsInputBufferFull(void)
 }
 
 
+BOOL kWaitForACKAndPutOtherScanCode(void)
+{
+	int i, j;
+	BYTE ucData;
+	BOOL bResult = FALSE;
+
+	for(j=0; j<100; ++j) {
+		for(i=0; i<0xFFFF; ++i) {
+			if(TRUE == kIsOutputBufferFull()) {
+				break;
+			}
+		}
+
+		ucData = kInPortByte(0x60);
+		if(0xFA == ucData) {
+			bResult = TRUE;
+			break;
+		}
+		else {
+			kConvertScanCodeAndPutQueue(ucData);
+		}
+	}
+	return bResult;
+}
+
+
 BOOL kEnableKeyboard(void)
 {
 	int i, j;
+	BOOL bPreINT;
+	BOOL bResult;
+
+	// 인터럽트 상태 저장 및 비활성화
+	bPreINT = kSetInterruptFlag(FALSE);
 
 	// 컨트롤 레지스터(포트: 0x64)에 키보드 활성화 커멘드(0xAE) 전송
 	// 키보드 활성화
@@ -53,20 +88,12 @@ BOOL kEnableKeyboard(void)
 	kOutPortByte(0x64, 0xF4);
 
 	// ACK 수신 대기
-	// 100번 정도 충분히 읽어 ACK 확인
-	for(j=0; j<100; ++j) {
-		for(i=0; i<0xFFFF; ++i) {
-			if(TRUE == kIsOutputBufferFull()) {
-				break;
-			}
-		}
+	bResult = kWaitForACKAndPutOtherScanCode();
 
-		if(0xFA == kInPortByte(0x60)) {
-			return TRUE;
-		}
-	}
+	// 인터럽트 상태 복원
+	kSetInterruptFlag(bPreINT);
 
-	return FALSE;
+	return bResult;
 }
 
 
@@ -85,6 +112,12 @@ BYTE kGetKeyboardScanCode(void)
 BOOL kChangeKeyboardLED(BOOL ucCapsLockOn, BOOL bNumLockOn, BOOL bScrollLockOn)
 {
 	int i, j;
+	BOOL bPreINT;
+	BOOL bResult;
+	BYTE ucData;
+
+	// 인터럽트 상태 저장 및 비활성화
+	bPreINT = kSetInterruptFlag(FALSE);
 
 	// 키보드에 LED 명령을 전송하기 전에 전송 가능 할 때 까지 대기
 	for(i=0; i<0xFFFF; ++i) {
@@ -103,22 +136,8 @@ BOOL kChangeKeyboardLED(BOOL ucCapsLockOn, BOOL bNumLockOn, BOOL bScrollLockOn)
 		}
 	}
 
-	// ACK가 올 때 까지 대기
-	for(j=0; j<100; ++j) {
-		for(i=0; i<0xFFFF; ++i) {
-			if(TRUE == kIsOutputBufferFull()) {
-				break;
-			}
-		}
-
-		// ACK 확인
-		if(0xFA == kInPortByte(0x60)) {
-			break;
-		}
-	}
-	if(100 <= j) {
-		return FALSE;
-	}
+	// ACK 수신 대기
+	bResult = kWaitForACKAndPutOtherScanCode();
 
 	// LED 값을 전송
 	kOutPortByte(0x60, ((ucCapsLockOn << 2) | (bNumLockOn << 1) | bScrollLockOn));
@@ -129,24 +148,13 @@ BOOL kChangeKeyboardLED(BOOL ucCapsLockOn, BOOL bNumLockOn, BOOL bScrollLockOn)
 		}
 	}
 
-	// ACK가 올 때 까지 대기
-	for(j=0; j<100; ++j) {
-		for(i=0; i<0xFFFF; ++i) {
-			if(TRUE == kIsOutputBufferFull()) {
-				break;
-			}
-		}
+	// ACK 수신 대기
+	bResult = kWaitForACKAndPutOtherScanCode();
 
-		// ACK 확인
-		if(0xFA == kInPortByte(0x60)) {
-			break;
-		}
-	}
-	if(100 <= j) {
-		return FALSE;
-	}
+	// 인터럽트 상태 복원
+	kSetInterruptFlag(bPreINT);
 
-	return TRUE;
+	return bResult;
 }
 
 
@@ -373,4 +381,62 @@ BOOL kConvertScanCodeToASCIICode(BYTE ucScanCode, BYTE* poUcASCIICode, BOOL* poU
 	// 조합키 눌림 상태 갱신
 	UpdateCombinationKeyStatusAndLED(ucScanCode);
 	return TRUE;
+}
+
+
+BOOL kInitializeKeyboard(void)
+{
+	// Key Queue 초기화
+	kInitializeQueue(&gtKeyQueue, gtKeyQueueBuff, KEY_MAX_QUEUE_SIZE, sizeof(KeyData_t));
+
+	// 키보드 활성화
+	return kEnableKeyboard();
+}
+
+
+BOOL kConvertScanCodeAndPutQueue(BYTE ucScanCode)
+{
+	KeyData_t tData;
+	BOOL bResult = FALSE;
+	BOOL bPreINT;
+
+	// 스캔 코드 복사
+	tData.ucScanCode	= ucScanCode;
+
+
+	// ASCII로 변환 후 큐에 삽입
+	if(TRUE == kConvertScanCodeToASCIICode(ucScanCode, &(tData.ucASCIICode), &(tData.ucFlags))) {
+
+		// 인터럽트 상태 저장 및 비활성화
+		bPreINT = kSetInterruptFlag(FALSE);
+
+		bResult = kPutQueue(&gtKeyQueue, &tData);
+
+		// 인터럽트 상태 복원
+		kSetInterruptFlag(bPreINT);
+	}
+
+	return bResult;
+}
+
+
+BOOL kGetKeyFromKeyQueue(KeyData_t* poData)
+{
+	BOOL bResult;
+	BOOL bPreINT;
+
+	// 큐가 비였는지 확인
+	if(TRUE == kIsQueueEmpty(&gtKeyQueue)) {
+		return FALSE;
+	}
+
+	// 인터럽트 상태 저장 및 비활성화
+	bPreINT = kSetInterruptFlag(FALSE);
+
+	bResult = kGetQueue(&gtKeyQueue, poData);
+
+	// 인터럽트 상태 복원
+	kSetInterruptFlag(bPreINT);
+
+	return bResult;
 }

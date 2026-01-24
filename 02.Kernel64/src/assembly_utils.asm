@@ -4,6 +4,7 @@ SECTION .text
 
 ; C언어와 연결
 global kInPortByte, kOutPortByte, kLoadGDTR, kLoadTR, kLoadIDTR
+global kEnableInterrupt, kDisableInterrupt, kReadRFLAGS
 
 ; 포트로부터 1바이트를 읽어옴
 ; BYTE kInPortByte(WORD wPort)
@@ -55,4 +56,25 @@ kLoadTR:
 ; void kLoadIDTR(QWORD qwIDTRAddr)
 kLoadIDTR:
 	lidt [ rdi ]
+	ret
+
+
+; 인터럽트 활성화
+; void kEnableInterrupt(void)
+kEnableInterrupt:
+	sti
+	ret
+
+; 인터럽트 비활성화
+; void kDisableInterrupt(void)
+kDisableInterrupt:
+	cli
+	ret
+
+; RFLAGS 레지스터 읽기
+; QWORD kReadRFLAGS(void)
+kReadRFLAGS:
+	pushfq
+	pop rax
+
 	ret

@@ -13,6 +13,7 @@
 void kMemSet(void* poDes, BYTE ucData, int iSize);
 int kMemCpy(void* poDes, const void *poSrc, int iSize);
 int kMemCmp(const void* poDes, const void* poSrc, int iSize);
+BOOL kSetInterruptFlag(BOOL bEnINT);
 
 
 

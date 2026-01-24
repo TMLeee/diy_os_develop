@@ -6,6 +6,7 @@
  */
 
 #include "utility.h"
+#include "assembly_utils.h"
 
 void kMemSet(void* poDes, BYTE ucData, int iSize)
 {
@@ -34,4 +35,23 @@ int kMemCmp(const void* poDes, const void* poSrc, int iSize)
 		}
 	}
 	return 0;
+}
+
+
+BOOL kSetInterruptFlag(BOOL bEnINT)
+{
+	QWORD qwRFLAGS;
+
+	qwRFLAGS = kReadRFLAGS();
+	if(TRUE == bEnINT) {
+		kEnableInterrupt();
+	}
+	else {
+		kDisableInterrupt();
+	}
+
+	if(qwRFLAGS & 0x0200) {
+		return TRUE;
+	}
+	return FALSE;
 }
