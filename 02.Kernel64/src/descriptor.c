@@ -151,11 +151,3 @@ void kSetIDTEntry(IDTEntry_t *poEntry, void* pvHandler, WORD wSelector,
 	poEntry->dwUppBaseAddr = ((QWORD)pvHandler) >> 32;
 	poEntry->dwReserved = 0;
 }
-
-
-extern void kPrintString(int x, int y, const char* str);
-void kDummyHandler(void)
-{
-	kPrintString(0, 15, "============= Dummy Handler Execute =============");
-	while(1);
-}

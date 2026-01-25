@@ -1,12 +1,21 @@
+console.o: ../src/console.c ../src/console.h ../src/types.h \
+ ../src/keyboard.h ../src/assembly_utils.h ../src/utility.h
+console_shell.o: ../src/console_shell.c ../src/console_shell.h \
+ ../src/types.h ../src/console.h ../src/keyboard.h ../src/utility.h \
+ ../src/pit.h ../src/rtc.h ../src/assembly_utils.h
 descriptor.o: ../src/descriptor.c ../src/descriptor.h ../src/types.h \
  ../src/assembly_utils.h ../src/utility.h ../src/isr.h
 interrupt_handler.o: ../src/interrupt_handler.c \
- ../src/interrupt_handler.h ../src/types.h ../src/pic.h ../src/keyboard.h
+ ../src/interrupt_handler.h ../src/types.h ../src/pic.h ../src/keyboard.h \
+ ../src/console.h
 keyboard.o: ../src/keyboard.c ../src/types.h ../src/assembly_utils.h \
  ../src/keyboard.h ../src/queue.h ../src/utility.h
 main.o: ../src/main.c ../src/types.h ../src/keyboard.h \
- ../src/descriptor.h ../src/assembly_utils.h ../src/pic.h
+ ../src/descriptor.h ../src/assembly_utils.h ../src/pic.h \
+ ../src/console.h ../src/console_shell.h
 pic.o: ../src/pic.c ../src/pic.h ../src/types.h
+pit.o: ../src/pit.c ../src/pit.h ../src/types.h
 queue.o: ../src/queue.c ../src/queue.h ../src/types.h
+rtc.o: ../src/rtc.c ../src/rtc.h ../src/types.h
 utility.o: ../src/utility.c ../src/utility.h ../src/types.h \
  ../src/assembly_utils.h

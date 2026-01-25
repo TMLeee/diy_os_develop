@@ -1,0 +1,49 @@
+/*
+ * pit.h
+ *
+ *  Created on: 2026. 1. 25.
+ *      Author: Macbook_pro
+ */
+
+#ifndef __02_KERNEL64_SRC_PIT_H_
+#define __02_KERNEL64_SRC_PIT_H_
+
+#include "types.h"
+
+
+// Time
+#define PIT_FREQUENCY			1193182
+#define MS_TO_COUNT(X)			(PIT_FREQUENCY * (X) / 1000)
+#define US_TO_COUNT(X)			(PIT_FREQUENCY * (X) / 1000000)
+
+// I/O Port
+#define PIT_PORT_CONTROL		0x43
+#define PIT_PORT_CONTROL0		0x40
+#define PIT_PORT_CONTROL1		0x41
+#define PIT_PORT_CONTROL2		0x42
+
+// Mode
+#define PIT_CONTROL_COUNTER0	0x00
+#define PIT_CONTROL_COUNTER1	0x40
+#define PIT_CONTROL_COUNTER2	0x80
+#define PIT_CONTROL_LSBMSB_RW	0x30
+#define PIT_CONTROL_LATCH		0x00
+#define PIT_CONTROL_MODE0		0x00
+#define PIT_CONTROL_MODE2		0x04
+
+// Counter Mode
+#define PIT_CONTROL_BINARY_COUNTER	0x00
+#define PIT_CONTROL_BCD_COUBTER		0x01
+
+#define PIT_COUNTER0_ONCE		(PIT_CONTROL_COUNTER0 	| PIT_CONTROL_LSBMSB_RW | \
+								 PIT_CONTROL_MODE0		| PIT_CONTROL_BINARY_COUNTER)
+#define PIT_COUNTER0_PERIODIC	(PIT_CONTROL_COUNTER0	| PIT_CONTROL_LSBMSB_RW | \
+								 PIT_CONTROL_MODE2		| PIT_CONTROL_BINARY_COUNTER)
+#define PIT_COUNTER0_LATCH		(PIT_CONTROL_COUNTER0	| PIT_CONTROL_LATCH)
+
+
+void kInitializePIT(WORD wCnt, BOOL bPeriodic);
+WORD kReadCounter0(void);
+void kWaitUsingDirectPIT(WORD wCnt);
+
+#endif /* 02_KERNEL64_SRC_PIT_H_ */

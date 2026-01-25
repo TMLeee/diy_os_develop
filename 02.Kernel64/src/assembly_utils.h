@@ -18,6 +18,7 @@ void kLoadIDTR(QWORD qwIDTRAddr);
 void kEnableInterrupt(void);
 void kDisableInterrupt(void);
 QWORD kReadRFLAGS(void);
+QWORD kReadTSC(void);
 
 
 #endif /* 02_KERNEL64_SRC_ASSEMBLY_UTILS_H_ */

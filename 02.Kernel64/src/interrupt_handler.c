@@ -10,8 +10,9 @@
 #include "interrupt_handler.h"
 #include "pic.h"
 #include "keyboard.h"
+#include "console.h"
 
-extern void kPrintString(int x, int y, const char* str);
+
 void kCommonExceptionHandler(int iVectorNum, QWORD qwErrCode)
 {
 	char vcBuffer[3] = {0,};
@@ -19,10 +20,11 @@ void kCommonExceptionHandler(int iVectorNum, QWORD qwErrCode)
 	// 인터럽트 백터 번호 출력
 	vcBuffer[0] = '0' + (iVectorNum / 10);
 	vcBuffer[1] = '0' + (iVectorNum % 10);
+	vcBuffer[2] = '\0';
 
-	kPrintString(0, 0, "===============================================");
-	kPrintString(0, 1, "Exception Occurred! Vector: ");
-	kPrintString(27, 1, vcBuffer);
+	kPrintStringXY(0, 0, "===============================================");
+	kPrintStringXY(0, 1, "Exception Occurred! Vector: ");
+	kPrintStringXY(27, 1, vcBuffer);
 
 	while(1);
 }
@@ -30,7 +32,7 @@ void kCommonExceptionHandler(int iVectorNum, QWORD qwErrCode)
 
 void kCommonInterruptHandler(int iVectorNum)
 {
-	char vcBuffer[10] = "[INT:  , ]";
+	char vcBuffer[11] = "[INT:  , ]";
 	static int g_iCommonIntCnt = 0;
 
 	vcBuffer[5] = '0' + (iVectorNum / 10);
@@ -38,7 +40,7 @@ void kCommonInterruptHandler(int iVectorNum)
 
 	vcBuffer[8] = '0' + g_iCommonIntCnt;
 	g_iCommonIntCnt = (g_iCommonIntCnt + 1) % 10;
-	kPrintString(70, 0, vcBuffer);
+	kPrintStringXY(70, 0, vcBuffer);
 
 	kSendEOIToPIC(iVectorNum - PIC_IRQ_START_VECTOR);
 }
@@ -46,7 +48,7 @@ void kCommonInterruptHandler(int iVectorNum)
 
 void kKeyboardHandler(int iVectorNum)
 {
-	char vcBuffer[10] = "[INT:  , ]";
+	char vcBuffer[11] = "[INT:  , ]";
 	static int g_iKeyIntCnt = 0;
 	BYTE ucTemp;
 
@@ -56,7 +58,7 @@ void kKeyboardHandler(int iVectorNum)
 
 	vcBuffer[8] = '0' + g_iKeyIntCnt;
 	g_iKeyIntCnt = (g_iKeyIntCnt + 1) % 10;
-	kPrintString(0, 0, vcBuffer);
+	kPrintStringXY(0, 0, vcBuffer);
 
 
 	// 키보드 값을 읽어서 큐에 삽입

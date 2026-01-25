@@ -5,6 +5,7 @@ SECTION .text
 ; C언어와 연결
 global kInPortByte, kOutPortByte, kLoadGDTR, kLoadTR, kLoadIDTR
 global kEnableInterrupt, kDisableInterrupt, kReadRFLAGS
+global kReadTSC
 
 ; 포트로부터 1바이트를 읽어옴
 ; BYTE kInPortByte(WORD wPort)
@@ -77,4 +78,17 @@ kReadRFLAGS:
 	pushfq
 	pop rax
 
+	ret
+
+; TSC 카운터 값을 읽고 반환
+; QWORD kReadTSC(void)
+kReadTSC:
+	push rdx
+
+	rdtsc
+
+	shl rdx, 32
+	or rax, rdx
+
+	pop rdx
 	ret

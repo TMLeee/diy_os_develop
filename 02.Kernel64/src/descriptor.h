@@ -167,6 +167,5 @@ void kInitTSSSegment(TSSSegment_t *poTSS);
 void kInitTDTTable(void);
 void kSetIDTEntry(IDTEntry_t *poEntry, void* pvHandler, WORD wSelector,
 				BYTE ucIST, BYTE ucFlag, BYTE ucType);
-void kDummyHandler(void);
 
 #endif /* 02_KERNEL64_SRC_DESCRIPTOR_H_ */
