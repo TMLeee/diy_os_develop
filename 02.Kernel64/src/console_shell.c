@@ -25,7 +25,8 @@ ShellCmdEntry_t gtCommandTable[] =
 		{"wait", "Wait ms Using PIT, ex)wait 100[ms]", kWaitUsingPIT},
 		{"rdtsc", "Read Time Stamp Counter", kReadTimeStampCounter},
 		{"cpuspeed", "Measure Processor Speed", kMeasureProcessorSpeed},
-		{"date", "Show Data and Time", kShowDateAndTime}
+		{"date", "Show Data and Time", kShowDateAndTime},
+		{"createtask", "Create Task", kCreateTestTask}
 };
 
 
@@ -314,4 +315,35 @@ void kShowDateAndTime(const char* poParamBuff)
 
 	kPrintf("Data: %d/%d/%d %s, ", wYear, ucMonth, ucDayOfMonth, kConvDayOfWeekToString(ucDayOfWeek));
 	kPrintf("Time: %d:%d:%d\n", ucHour, ucMinute, ucSecond);
+}
+
+
+static TCB_t gtTask[2] = {0,};
+static QWORD gqwStack[1024] = {0,};
+void kTestTask(void) {
+	int i=0;
+
+	while(1) {
+		kPrintf("[%d] kTestTask: Press any key to switch\n", i++);
+		kGetch();
+		kSwitchContext(&(gtTask[1].tContext), &(gtTask[0].tContext));
+	}
+}
+
+
+void kCreateTestTask(const char* poParamBuff)
+{
+	KeyData_t keyData;
+	int i=0;
+
+	kSetupTask(&(gtTask[1]), 1, 0, (QWORD)kTestTask, &(gqwStack), sizeof(gqwStack));
+
+	// q가 입력될 때 까지 수행
+	while(1) {
+		kPrintf("[%d] kConsoleShell: Press any key to switch\n", i++);
+		if('q' == kGetch()) {
+			break;
+		}
+		kSwitchContext(&(gtTask[0].tContext), &(gtTask[1].tContext));
+	}
 }

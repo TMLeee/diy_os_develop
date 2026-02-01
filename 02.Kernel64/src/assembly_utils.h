@@ -9,6 +9,7 @@
 #define __02_KERNEL64_SRC_ASSEMBLY_UTILS_H_
 
 #include "types.h"
+#include "task.h"
 
 BYTE kInPortByte(WORD wPort);
 void kOutPortByte(WORD wPort, BYTE ucData);
@@ -19,6 +20,7 @@ void kEnableInterrupt(void);
 void kDisableInterrupt(void);
 QWORD kReadRFLAGS(void);
 QWORD kReadTSC(void);
+void kSwitchContext(Context_t* poCurrContext, Context_t* poNextContext);
 
 
 #endif /* 02_KERNEL64_SRC_ASSEMBLY_UTILS_H_ */

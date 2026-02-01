@@ -175,7 +175,7 @@ long kDecimalStringToLong(const char* str)
 	// 숫자로 변환
 	for(; str[i] != '\0'; ++i) {
 		lValue *= 10;
-		lValue += str[i] - '\0';
+		lValue += str[i] - '0';
 	}
 
 	// 음수인 경우
