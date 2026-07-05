@@ -28,7 +28,9 @@ int kHexToString(QWORD qwValue, char* str);
 int kDecimalToString(long lValue, char* str);
 int kSPrintf(char* str, const char* format, ...);
 int kVSPrintf(char* str, const char* format, va_list ap);
+QWORD kGetTickCnt(void);
 
+extern volatile QWORD g_qwTickCount;
 
 
 #endif /* 02_KERNEL64_SRC_UTILITY_H_ */

@@ -26,7 +26,7 @@ ShellCmdEntry_t gtCommandTable[] =
 		{"rdtsc", "Read Time Stamp Counter", kReadTimeStampCounter},
 		{"cpuspeed", "Measure Processor Speed", kMeasureProcessorSpeed},
 		{"date", "Show Data and Time", kShowDateAndTime},
-		{"createtask", "Create Task", kCreateTestTask}
+		{"createtask", "Create Task, ex)createtask 1(type) 10(count)", kCreateTestTask}
 };
 
 
@@ -318,32 +318,132 @@ void kShowDateAndTime(const char* poParamBuff)
 }
 
 
-static TCB_t gtTask[2] = {0,};
-static QWORD gqwStack[1024] = {0,};
-void kTestTask(void) {
-	int i=0;
+void kTestTask1( void )
+{
+    BYTE bData;
+    int i = 0, iX = 0, iY = 0, iMargin;
+    CharStruct* pstScreen = ( CharStruct* ) CONSOLE_VIDEO_MEM_ADDR;
+    TCB_t* pstRunningTask;
+    
+    // 자신의 ID를 얻어서 화면 오프셋으로 사용
+    pstRunningTask = kGetRunningTask();
+    iMargin = ( pstRunningTask->stLink.qwID & 0xFFFFFFFF ) % 10;
+    
+    // 화면 네 귀퉁이를 돌면서 문자 출력
+    while( 1 )
+    {
+        switch( i )
+        {
+        case 0:
+            iX++;
+            if( iX >= ( CONSOLE_WIDTH - iMargin ) )
+            {
+                i = 1;
+            }
+            break;
+            
+        case 1:
+            iY++;
+            if( iY >= ( CONSOLE_HEIGHT - iMargin ) )
+            {
+                i = 2;
+            }
+            break;
+            
+        case 2:
+            iX--;
+            if( iX < iMargin )
+            {
+                i = 3;
+            }
+            break;
+            
+        case 3:
+            iY--;
+            if( iY < iMargin )
+            {
+                i = 0;
+            }
+            break;
+        }
+        
+        // 문자 및 색깔 지정
+        pstScreen[ iY * CONSOLE_WIDTH + iX ].ucChar = bData;
+        pstScreen[ iY * CONSOLE_WIDTH + iX ].ucAttr = bData & 0x0F;
+        bData++;
+        
+        // 다른 태스크로 전환
+        kSchedule();
+    }
+}
 
-	while(1) {
-		kPrintf("[%d] kTestTask: Press any key to switch\n", i++);
-		kGetch();
-		kSwitchContext(&(gtTask[1].tContext), &(gtTask[0].tContext));
-	}
+
+void kTestTask2( void )
+{
+    int i = 0, iOffset;
+    CharStruct* pstScreen = ( CharStruct* ) CONSOLE_VIDEO_MEM_ADDR;
+    TCB_t* pstRunningTask;
+    char vcData[ 4 ] = { '-', '\\', '|', '/' };
+    
+    // 자신의 ID를 얻어서 화면 오프셋으로 사용
+    pstRunningTask = kGetRunningTask();
+    iOffset = ( pstRunningTask->stLink.qwID & 0xFFFFFFFF ) * 2;
+    iOffset = CONSOLE_WIDTH * CONSOLE_HEIGHT - 
+        ( iOffset % ( CONSOLE_WIDTH * CONSOLE_HEIGHT ) );
+
+    while( 1 )
+    {
+        // 회전하는 바람개비를 표시
+        pstScreen[ iOffset ].ucChar = vcData[ i % 4 ];
+        // 색깔 지정
+        pstScreen[ iOffset ].ucAttr = ( iOffset % 15 ) + 1;
+        i++;
+        
+        // 다른 태스크로 전환
+        kSchedule();
+    }
 }
 
 
 void kCreateTestTask(const char* poParamBuff)
 {
-	KeyData_t keyData;
-	int i=0;
+	ParamList_t stList;
+    char vcType[ 30 ];
+    char vcCount[ 30 ];
+    int i;
+    
+    // 파라미터를 추출
+    kInitializeParam( &stList, poParamBuff );
+    kGetNextParam( &stList, vcType );
+    kGetNextParam( &stList, vcCount );
 
-	kSetupTask(&(gtTask[1]), 1, 0, (QWORD)kTestTask, &(gqwStack), sizeof(gqwStack));
-
-	// q가 입력될 때 까지 수행
-	while(1) {
-		kPrintf("[%d] kConsoleShell: Press any key to switch\n", i++);
-		if('q' == kGetch()) {
-			break;
-		}
-		kSwitchContext(&(gtTask[0].tContext), &(gtTask[1].tContext));
-	}
+    switch( kAToI( vcType, 10 ) )
+    {
+    // 타입 1 태스크 생성
+    case 1:
+        for( i = 0 ; i < kAToI( vcCount, 10 ) ; i++ )
+        {    
+            if( kCreateTask( 0, ( QWORD ) kTestTask1 ) == NULL )
+            {
+                break;
+            }
+        }
+        
+        kPrintf( "Task1 %d Created\n", i );
+        break;
+        
+    // 타입 2 태스크 생성
+    case 2:
+    default:
+        for( i = 0 ; i < kAToI( vcCount, 10 ) ; i++ )
+        {    
+            if( kCreateTask( 0, ( QWORD ) kTestTask2 ) == NULL )
+            {
+                break;
+            }
+        }
+        
+        kPrintf( "Task2 %d Created\n", i );
+        break;
+    }    
 }

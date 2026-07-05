@@ -4,6 +4,7 @@ SECTION .text
 
 ; Import
 extern kCommonExceptionHandler, kCommonInterruptHandler, kKeyboardHandler
+extern kTimerHandler
 
 ; Export
 ; 예외 처리를 위한 ISR
@@ -346,7 +347,7 @@ kISRTimer:
 	KSAVECONTEXT
 
 	mov rdi, 32
-	call kCommonInterruptHandler
+	call kTimerHandler
 
 	KLOADCONTEXT
 	iretq

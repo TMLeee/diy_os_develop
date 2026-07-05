@@ -11,6 +11,8 @@
 #include "pic.h"
 #include "console.h"
 #include "console_shell.h"
+#include "task.h"
+#include "pic.h"
 
 
 void kPrintString(int x, int y, const char* str)
@@ -62,15 +64,20 @@ void main(void)
 	kSetCursor(37, iCursorY++);
 	kPrintf(" OK \n");
 
+	kPrintf("CTCB Pool And Scheduler Initialize..[    ]\n");
+	kInitializeScheduler();
+	kSetCursor(38, iCursorY++);
+	kPrintf(" OK \n");
+
 	// 키보드 활성화
 	kPrintf("Initializing Keyboard Interface ....[    ]\n");
 	if(TRUE == kInitializeKeyboard()) {
-		kSetCursor(37, iCursorY++);
+		kSetCursor(39, iCursorY++);
 		kPrintf(" OK \n");
 		kChangeKeyboardLED(FALSE, FALSE, FALSE);
 	}
 	else {
-		kSetCursor(37, iCursorY++);
+		kSetCursor(38, iCursorY++);
 		kPrintf("Fail\n");
 		kPrintf("Fail to initializing Keyboard.");
 		while(1);
@@ -81,7 +88,7 @@ void main(void)
 	kInitializePIC();
 	kMaskPICInterrupt(0);
 	kEnableInterrupt();
-	kSetCursor(37, iCursorY++);
+	kSetCursor(38, iCursorY++);
 	kPrintf(" OK \n");
 
 	kStartConsoleShell();

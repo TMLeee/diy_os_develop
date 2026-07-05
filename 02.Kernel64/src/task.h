@@ -10,6 +10,7 @@
 
 
 #include "types.h"
+#include "list.h"
 
 
 #define TASK_REGISTER_COUNT		(5 + 19)
@@ -41,6 +42,20 @@
 #define TASK_RSP_OFFSET			22
 #define TASK_SS_OFFSET			23
 
+// Task pool addr
+#define TASK_TCB_POLL_ADDR		0x800000
+#define TASK_MAX_CNT			1024
+
+// Stack pool addr, size
+#define TASK_STACK_POOL_ADDR	(TASK_TCB_POLL_ADDR + sizeof(TCB_t) * TASK_MAX_CNT)
+#define TASK_STACK_SIZE			8192
+
+// Invalid task id
+#define TASK_INVALID_ID			0xFFFFFFFFFFFFFFFF
+
+// max processing time(ms)
+#define TASK_PROCESSOR_TIME		5
+
 
 #pragma pack (push, 1)
 
@@ -52,20 +67,62 @@ typedef struct kContextStruct{
 
 // 테스크 상태 관리 자료구조
 typedef struct kTaskControlBlockStruct{
+
+	// Next data position, id
+	ListLink_t stLink;
+
+	// Flag
+	QWORD qwFlag;
+
 	// Context
 	Context_t tContext;
-
-	// ID, Flag
-	QWORD qwID;
-	QWORD qwFlag;
 
 	// Stack Address, Size
 	void* pvStackAddr;
 	QWORD qwStackSize;
 }TCB_t;
 
+
+// TCB 풀 상태 관리 자료구조
+typedef struct kTCBPoolManagerStruct {
+	// Infomation of tack pools
+	TCB_t *poStartAddr;
+	int iMaxCnt;
+	int iUseCnt;
+
+	// Allocated count of TCB
+	int iAllocatedCnt;
+}TcbPoolManager_t;
+
+
+// 스케줄러 상태 관리 자료구조
+typedef struct kSchedulerStruct {
+	TCB_t *poRunningTask;
+
+	int iProcessorTime;
+
+	List_t stReadyList;
+}Scheduler_t;
+
 #pragma pack (pop)
 
-void kSetupTask(TCB_t* poTCB, QWORD qwID, QWORD qwFlag, QWORD qwEntryPointAddr, void* poStackAddr, QWORD qwStackSize);
+// Task pool functions
+void kInitializeTCBPool(void);
+TCB_t *kAllocateTCB(void);
+void kFreeTCB(QWORD qwID);
+TCB_t* kCreateTask(QWORD qwFlag, QWORD qwEntryPointAddr);
+void kSetupTask(TCB_t* poTCB, QWORD qwFlag, QWORD qwEntryPointAddr,
+	void *poStackAddr, QWORD qwStackSize);
+
+// Scheduler functions
+void kInitializeScheduler(void);
+void kSetRunningTask(TCB_t *poTask);
+TCB_t* kGetRunningTask(void);
+TCB_t* kGetNextTaskToRun(void);
+void kAddTaskToReadyList(TCB_t* poTask);
+void kSchedule(void);
+BOOL kScheduleInInterrunt(void);
+void kDecreaseProcessorTime(void);
+BOOL kIsProcessorTimeExpired(void);
 
 #endif /* 02_KERNEL64_SRC_TASK_H_ */

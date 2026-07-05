@@ -11,6 +11,31 @@
 #include "pic.h"
 #include "keyboard.h"
 #include "console.h"
+#include "utility.h"
+#include "task.h"
+#include "descriptor.h"
+
+
+void kTimerHandler(int iVectorNum)
+{
+	char vcBuf[] = "[INT:  , ]";
+    static int g_iTimerIntCnt = 0;
+
+    vcBuf[ 5 ] = '0' + iVectorNum / 10;
+    vcBuf[ 6 ] = '0' + iVectorNum % 10;
+    vcBuf[ 8 ] = '0' + g_iTimerIntCnt;
+    g_iTimerIntCnt = ( g_iTimerIntCnt + 1 ) % 10;
+    kPrintStringXY( 70, 0, vcBuf );
+
+	kSendEOIToPIC(iVectorNum - PIC_IRQ_START_VECTOR);
+
+	++g_qwTickCount;
+
+	kDecreaseProcessorTime();
+	if(TRUE == kIsProcessorTimeExpired()) {
+		kScheduleInInterrunt();
+	}
+}
 
 
 void kCommonExceptionHandler(int iVectorNum, QWORD qwErrCode)

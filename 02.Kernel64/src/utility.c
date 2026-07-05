@@ -9,6 +9,7 @@
 #include "assembly_utils.h"
 
 static QWORD g_qwTotalRAMSize = 0;
+volatile QWORD g_qwTickCount = 0;
 
 void kMemSet(void* poDes, BYTE ucData, int iSize)
 {
@@ -351,4 +352,10 @@ int kVSPrintf(char* str, const char* format, va_list ap)
 
 	str[iBuffIdx] = '\0';
 	return iBuffIdx;
+}
+
+
+QWORD kGetTickCnt(void)
+{
+	return g_qwTickCount;
 }
