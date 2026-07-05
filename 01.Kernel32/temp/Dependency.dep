@@ -1,2 +1,0 @@
-main.o: ../src/main.c ../src/types.h ../src/page.h ../src/mode_sw.h
-page.o: ../src/page.c ../src/page.h ../src/types.h
