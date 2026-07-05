@@ -1,5 +1,5 @@
-NASM64 = nasm -f elf64
-GCC64 = x86_64-pc-linux-gcc.exe -c -m64 -ffreestanding
+NASM64 = nasm -f elf64 -g -F dwarf
+GCC64 = x86_64-pc-linux-gcc.exe -c -g -gdwarf-4 -m64 -ffreestanding
 LD64 = x86_64-pc-linux-ld.exe -melf_x86_64 -T ../elf_x86_64.x -nostdlib -e main -Ttext 0x200000
 
 # 바이너리 이미지 생성을 위한 OBJCOPY 옵션 정의

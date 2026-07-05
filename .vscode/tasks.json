@@ -1,0 +1,91 @@
+{
+    // diy_os_develop - MINT64 기반 64비트 OS 빌드/실행 태스크
+    "version": "2.0.0",
+    "options": {
+        "env": {
+            // cygwin make/nasm + x86_64 크로스 툴체인 경로 보장
+            "PATH": "C:\\cygwin64\\bin;C:\\cygwin64\\usr\\cross\\bin;${env:PATH}"
+        }
+    },
+    "tasks": [
+        {
+            // 전체 빌드 (Bootloader + Kernel32 + Kernel64 + Utility + Disk.img)
+            "label": "build",
+            "type": "shell",
+            "command": "make",
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "problemMatcher": "$gcc"
+        },
+        {
+            // 빌드 산출물 정리
+            "label": "clean",
+            "type": "shell",
+            "command": "make clean",
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "group": "build",
+            "problemMatcher": []
+        },
+        {
+            // QEMU 실행 (빌드 후 Disk.img 부팅)
+            "label": "run (QEMU)",
+            "type": "shell",
+            "command": "./qemu-system-x86_64.exe -L . -m 64 -fda \"${workspaceFolder}/Disk.img\" -localtime -M pc",
+            "options": {
+                // -L . 이 bios.bin 등을 찾으므로 반드시 qemu 디렉터리에서 실행
+                "cwd": "${workspaceFolder}/qemu-0.10.4"
+            },
+            "dependsOn": "build",
+            "group": {
+                "kind": "test",
+                "isDefault": true
+            },
+            "problemMatcher": [],
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated"
+            }
+        },
+        {
+            // QEMU 디버그 서버 기동: 모던 QEMU 11 사용 (구버전 0.10.4 stub은 최신 gdb와 프로토콜 비호환).
+            //   -gdb tcp:127.0.0.1:1234 : gdb 서버(IPv4 고정, cygwin gdb의 localhost/IPv6 회피)
+            //   -S                       : 부팅 시 CPU 정지 (gdb에서 시작)
+            // QEMU를 detached로 띄우고 태스크는 즉시 종료 → cppdbg가 이미 열린 포트에 접속.
+            // launch.json 의 "Debug Kernel64" 가 preLaunchTask 로 이 태스크를 자동 실행함.
+            "label": "run debug (QEMU + gdb stub)",
+            "type": "shell",
+            "command": "Start-Process -FilePath 'C:/Program Files/qemu/qemu-system-x86_64.exe' -ArgumentList '-m','64','-fda','${workspaceFolder}/Disk.img','-boot','a','-M','pc','-rtc','base=localtime','-gdb','tcp:127.0.0.1:1234','-S' -WorkingDirectory '${workspaceFolder}'; Start-Sleep -Seconds 2; Write-Host 'QEMU debug server ready on 127.0.0.1:1234'",
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "dependsOn": "build",
+            "isBackground": false,
+            "problemMatcher": [],
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated"
+            }
+        },
+        {
+            // 디버그 세션 종료 시 QEMU 정리 (launch.json 의 postDebugTask)
+            "label": "stop debug QEMU",
+            "type": "shell",
+            "command": "Stop-Process -Name qemu-system-x86_64 -Force -ErrorAction SilentlyContinue; Write-Host 'debug QEMU stopped'",
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "problemMatcher": [],
+            "presentation": {
+                "reveal": "silent",
+                "panel": "shared"
+            }
+        }
+    ]
+}

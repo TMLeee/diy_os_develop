@@ -83,9 +83,9 @@ BOOL kEnableKeyboard(void)
 		}
 	}
 
-	// 컨트롤 레지스터(포트: 0x64)에 키보드 활성화 커멘드(0xF4) 전송
-	// 키보드 활성화
-	kOutPortByte(0x64, 0xF4);
+	// 데이터 레지스터(포트: 0x60)에 키보드 활성화 커멘드(0xF4) 전송
+	// 0xF4는 키보드 디바이스 명령이므로 데이터 포트 0x60으로 보내야 ACK(0xFA)를 받음
+	kOutPortByte(0x60, 0xF4);
 
 	// ACK 수신 대기
 	bResult = kWaitForACKAndPutOtherScanCode();

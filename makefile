@@ -40,9 +40,14 @@ Disk.img: 00.Bootloader/Bootloader.bin 01.Kernel32/Kernel32.bin 02.Kernel64/Kern
 
 	./ImageMaker.exe $^
 
-	@echo 
+	@echo
+	@echo === Pad image to standard 1.44MB floppy 1474560 bytes ===
+	@echo === modern QEMU derives floppy geometry from image size ===
+	truncate -s 1474560 Disk.img
+
+	@echo
 	@echo ============= All Build Complete =============
-	@echo 
+	@echo
 	
 Utility:
 	@echo 

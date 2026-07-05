@@ -1,0 +1,42 @@
+{
+    // 실시간 소스레벨 디버깅 (검증 완료)
+    //   - preLaunchTask 가 모던 QEMU 를 -S(정지) + -gdb tcp:127.0.0.1:1234 로 기동
+    //   - cygwin gdb 로 접속. 반드시 접속 전에 "set osabi none" 을 실행해야
+    //     Windows 전용 qGetTIBAddr 패킷 요구로 인한 연결 중단을 방지함.
+    //   - 모던 QEMU 는 소프트웨어 브레이크포인트를 주소 기반으로 관리하므로 일반
+    //     VS Code UI 브레이크포인트가 커널 코드에서도 정상 동작함.
+    // 주의: cygwin gdb 는 역슬래시 경로(C:\...)를 인식하지 못하므로 모든 경로를
+    //       포워드슬래시 절대경로(C:/workspace/10.OS/...)로 지정한다. ${workspaceFolder}
+    //       는 역슬래시로 확장되어 실패하므로 사용하지 않는다.
+    // 필요 확장: C/C++ (ms-vscode.cpptools)  |  필요 도구: C:\cygwin64\bin\gdb.exe
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Debug Kernel64 (QEMU gdb stub)",
+            "type": "cppdbg",
+            "request": "launch",
+            // 심벌이 포함된 커널 ELF (링크 주소 0x200000, main = 0x202299)
+            "program": "C:/workspace/10.OS/02.Kernel64/temp/Kernel64.elf",
+            "cwd": "C:/workspace/10.OS",
+            "MIMode": "gdb",
+            "miDebuggerPath": "C:\\cygwin64\\bin\\gdb.exe",
+            // 모던 QEMU 의 gdb 서버 (IPv4 고정)
+            "miDebuggerServerAddress": "127.0.0.1:1234",
+            // cpptools 가 main 진입점에 자체 브레이크포인트를 걸어 정지. 모던 QEMU 는
+            // 소프트웨어 브레이크포인트를 주소 기반으로 관리하므로 커널 로드 후에도
+            // 정상 히트하며, cpptools 가 소유하는 정지라 "예외" 팝업이 뜨지 않는다.
+            "stopAtEntry": true,
+            // 디버그 실행 전 QEMU 를 -S/-gdb 로 기동, 종료 시 QEMU 정리
+            "preLaunchTask": "run debug (QEMU + gdb stub)",
+            "postDebugTask": "stop debug QEMU",
+            // 접속 이전에 실행 — 여기서 osabi 를 꺼야 연결이 성립함
+            "setupCommands": [
+                {
+                    "description": "cygwin gdb 의 Windows 타깃 처리(qGetTIBAddr) 비활성화",
+                    "text": "-gdb-set osabi none",
+                    "ignoreFailures": false
+                }
+            ]
+        }
+    ]
+}
