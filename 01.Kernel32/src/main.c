@@ -109,22 +109,36 @@ BOOL kInitKernel64Area(void)
 }
 
 
+// EntryPoint.s가 0x7E00에 남긴 E820 테이블로 판정한다. 레이아웃 정의는
+// 02.Kernel64/src/bootinfo.h. QWORD는 -m32에서 4바이트이므로 여기서는 쓰지 않는다
 BOOL kCheckMemSizeOvr64MB(void)
 {
-	DWORD* poCurAddr;
+	const DWORD dwMagic = *(DWORD*)0x7E00;
+	const WORD wCount = *(WORD*)0x7E04;
+	const BYTE* pucEntry = (const BYTE*)0x7E08;
+	unsigned long long qwHighest = 0;
+	unsigned long long qwEnd;
+	int i;
 
-	// 1MB 주소 지정
-	poCurAddr = (DWORD*) 0x100000;
-
-	// 메모리 크기 확인
-	while( (DWORD)poCurAddr < 0x4000000) {
-		*poCurAddr = 0x12345678;
-		if(*poCurAddr != 0x12345678) {
-			return FALSE;
-		}
-		poCurAddr += (0x100000 / 4);
+	if((0x46495442 != dwMagic) || (0 == wCount) || (128 < wCount)) {
+		return FALSE;
 	}
-	return TRUE;
+
+	// 엔트리: base(8) length(8) type(4) ext(4)
+	for(i=0; i<wCount; ++i, pucEntry += 24) {
+		if(1 != *(const DWORD*)(pucEntry + 16)) {
+			continue;
+		}
+		qwEnd = *(const unsigned long long*)(pucEntry + 0)
+			  + *(const unsigned long long*)(pucEntry + 8);
+		if(qwEnd > qwHighest) {
+			qwHighest = qwEnd;
+		}
+	}
+
+	// 합계가 아니라 최상단 주소로 판정한다. 64MB 머신도 EBDA/BIOS/PCI 예약
+	// 구멍 때문에 사용 가능 합계는 63MB 뿐이라 64MB를 요구하면 항상 실패한다
+	return (0x3F00000ULL <= qwHighest) ? TRUE : FALSE;
 }
 
 

@@ -6,6 +6,7 @@
  */
 
 #include "utility.h"
+#include "memmap.h"
 #include "assembly_utils.h"
 
 static QWORD g_qwTotalRAMSize = 0;
@@ -74,27 +75,11 @@ int kStrLen(const char* str)
 }
 
 
+// E820에서 얻은 사용 가능 용량을 MB로 환산. 예전에는 4MB 간격으로 값을 써 보고
+// 읽히는지 확인하는 파괴적 프로빙을 했는데, MMIO/ACPI 구멍을 구분할 수 없었다
 void kCheckTotalRAMSize(void)
 {
-	DWORD* poCurAddr;
-	DWORD dwPreValue;		// 주소가 아니라 원래 값을 보관
-
-	// 64MB 부터 4MB 단위로 검사 시작
-	poCurAddr = (DWORD*)0x4000000;
-	while(1) {
-		// 값을 쓰고 읽어서 해당 주소가 유효한지 확인
-		dwPreValue = *poCurAddr;
-		*poCurAddr = 0x12345678;
-		if(0x12345678 != *poCurAddr) {
-			break;
-		}
-
-		*poCurAddr = dwPreValue;
-		poCurAddr += (0x400000 / 4);
-	}
-
-	// 계산한 용량 저장
-	g_qwTotalRAMSize = (QWORD)(poCurAddr) / 0x100000;
+	g_qwTotalRAMSize = kGetUsableMemorySize() / 0x100000;
 }
 
 
