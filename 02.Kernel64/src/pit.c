@@ -7,6 +7,7 @@
 
 
 #include "pit.h"
+#include "assembly_utils.h"
 
 
 void kInitializePIT(WORD wCnt, BOOL bPeriodic)

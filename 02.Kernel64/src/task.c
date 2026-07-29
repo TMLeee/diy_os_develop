@@ -8,6 +8,7 @@
 
 #include "task.h"
 #include "descriptor.h"
+#include "utility.h"
 
 // scheduler
 static Scheduler_t gstScheduler;
@@ -20,7 +21,7 @@ void kInitializeTCBPool(void)
 	kMemSet(&(gstTCBPoolManager), 0, sizeof(gstTCBPoolManager));
 
 	gstTCBPoolManager.poStartAddr = (TCB_t*)TASK_TCB_POLL_ADDR;
-	kMemSet(TASK_TCB_POLL_ADDR, 0, sizeof(TCB_t) * TASK_MAX_CNT);
+	kMemSet((void*)TASK_TCB_POLL_ADDR, 0, sizeof(TCB_t) * TASK_MAX_CNT);
 
 	for(i=0; i<TASK_MAX_CNT; ++i) {
 		gstTCBPoolManager.poStartAddr[i].stLink.qwID = i;

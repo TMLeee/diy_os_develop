@@ -14,6 +14,7 @@
 #include "task.h"
 #include "pic.h"
 #include "serial.h"
+#include "utility.h"
 
 
 void kPrintString(int x, int y, const char* str)

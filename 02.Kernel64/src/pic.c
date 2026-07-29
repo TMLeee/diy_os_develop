@@ -7,6 +7,7 @@
 
 
 #include "pic.h"
+#include "assembly_utils.h"
 
 
 void kInitializePIC(void)

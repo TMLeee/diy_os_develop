@@ -7,6 +7,7 @@
 
 
 #include "rtc.h"
+#include "assembly_utils.h"
 
 
 void kReadRTCTime(BYTE* poHour, BYTE* poMinute, BYTE* poSecond)
