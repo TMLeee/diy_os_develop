@@ -14,6 +14,7 @@
 #include "assembly_utils.h"
 #include "serial.h"
 #include "memmap.h"
+#include "pmm.h"
 
 
 ShellCmdEntry_t gtCommandTable[] =
@@ -30,7 +31,9 @@ ShellCmdEntry_t gtCommandTable[] =
 		{"date", "Show Data and Time", kShowDateAndTime},
 		{"createtask", "Create Task, ex)createtask 1(type) 10(count)", kCreateTestTask},
 		{"crash", "Raise an exception, ex)crash div0|pf|gp|ud", kCrash},
-		{"memmap", "Show E820 Physical Memory Map", kShowMemoryMap}
+		{"memmap", "Show E820 Physical Memory Map", kShowMemoryMap},
+		{"pmemstat", "Show Physical Frame Allocator Stat", kShowPhysMemStat},
+		{"alloctest", "Alloc/Free Frames, ex)alloctest 100 0(order)", kAllocTest}
 };
 
 
@@ -498,4 +501,68 @@ void kCrash(const char* poParamBuff)
 void kShowMemoryMap(const char* poParamBuff)
 {
 	kPrintMemoryMap();
+}
+
+
+void kShowPhysMemStat(const char* poParamBuff)
+{
+	kPrintPhysicalMemoryStat();
+}
+
+
+// n개를 할당했다가 전부 해제하고, free 카운트가 정확히 복귀하는지 본다
+void kAllocTest(const char* poParamBuff)
+{
+	ParamList_t stList;
+	char vcParam[30];
+	int iCount, iOrder, i, iGot;
+	QWORD qwBefore, qwAfter;
+	QWORD vqAddr[64];
+	char vcNum[24], vcHex[17];
+
+	kInitializeParam(&stList, poParamBuff);
+	if(0 == kGetNextParam(&stList, vcParam)) {
+		kPrintf("ex) alloctest 100 0\n");
+		return;
+	}
+	iCount = kAToI(vcParam, 10);
+	iOrder = (0 == kGetNextParam(&stList, vcParam)) ? 0 : kAToI(vcParam, 10);
+
+	if((iCount <= 0) || (64 < iCount) || (iOrder < 0) || (10 < iOrder)) {
+		kPrintf("count 1..64, order 0..10\n");
+		return;
+	}
+
+	qwBefore = kGetFreePageCount();
+
+	for(iGot=0; iGot<iCount; ++iGot) {
+		vqAddr[iGot] = kAllocPages(iOrder);
+		if(0 == vqAddr[iGot]) {
+			break;
+		}
+		// 정렬 확인 후 패턴을 써 본다
+		if(0 != (vqAddr[iGot] & ((1UL << iOrder) * PAGE_SIZE - 1))) {
+			kPrintf("MISALIGNED at %d\n", iGot);
+			break;
+		}
+		*(volatile QWORD*)vqAddr[iGot] = 0xA5A5A5A5A5A5A5A5;
+	}
+
+	kUIToDecString((QWORD)iGot, vcNum);
+	kToHexString(vqAddr[0], vcHex, 12);
+	kPrintf("allocated %s (order %d) first=%s\n", vcNum, iOrder, vcHex);
+
+	// 패턴 검증 후 해제
+	for(i=0; i<iGot; ++i) {
+		if(0xA5A5A5A5A5A5A5A5 != *(volatile QWORD*)vqAddr[i]) {
+			kPrintf("PATTERN CORRUPT at %d\n", i);
+		}
+		kFreePages(vqAddr[i], iOrder);
+	}
+
+	qwAfter = kGetFreePageCount();
+	kUIToDecString(qwBefore, vcNum);
+	kUIToDecString(qwAfter, vcHex);
+	kPrintf("free before=%s after=%s %s\n", vcNum, vcHex,
+			(qwBefore == qwAfter) ? "OK" : "LEAK");
 }

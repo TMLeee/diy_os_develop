@@ -16,6 +16,7 @@
 #include "serial.h"
 #include "utility.h"
 #include "memmap.h"
+#include "pmm.h"
 
 
 void kPrintString(int x, int y, const char* str)
@@ -75,6 +76,18 @@ void main(void)
 	kCheckTotalRAMSize();
 	kSetCursor(37, iCursorY++);
 	kPrintf(" OK \n");
+
+	kPrintf("Physical Frame Allocator............[    ]\n");
+	if(TRUE == kInitializePhysicalMemory()) {
+		kSetCursor(37, iCursorY++);
+		kPrintf(" OK \n");
+	}
+	else {
+		kSetCursor(37, iCursorY++);
+		kPrintf("Fail\n");
+		kPrintf("Fail to initialize physical memory.");
+		while(1);
+	}
 
 	kPrintf("CTCB Pool And Scheduler Initialize..[    ]\n");
 	kInitializeScheduler();
