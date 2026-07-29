@@ -12,6 +12,7 @@
 #include "pit.h"
 #include "rtc.h"
 #include "assembly_utils.h"
+#include "serial.h"
 
 
 ShellCmdEntry_t gtCommandTable[] =
@@ -50,6 +51,11 @@ void kStartConsoleShell(void)
 				kPrintStringXY(iCursorX-1, iCursorY, " ");
 				kSetCursor(iCursorX-1, iCursorY);
 				--iCmdBuffIdx;
+
+				// 화면 지우기는 kPrintStringXY/kSetCursor로 처리되어
+				// kConsolePrintString을 거치지 않는다. 시리얼 로그에 지워진
+				// 문자가 남으면 실행된 명령과 로그가 달라지므로 직접 지운다.
+				kSerialPutString("\b \b");
 			}
 		}
 		// Enter 처리
