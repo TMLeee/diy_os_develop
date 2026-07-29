@@ -369,7 +369,7 @@ kISRSlavePIC:
 	mov rdi, 34
 	call kCommonInterruptHandler
 
-	KSAVECONTEXT
+	KLOADCONTEXT
 	iretq
 
 ; Serial Port 2 ISR
@@ -379,7 +379,7 @@ kISRSerial2:
 	mov rdi, 35
 	call kCommonInterruptHandler
 
-	KSAVECONTEXT
+	KLOADCONTEXT
 	iretq
 
 ; Serial Port 1 ISR
@@ -389,7 +389,7 @@ kISRSerial1:
 	mov rdi, 36
 	call kCommonInterruptHandler
 
-	KSAVECONTEXT
+	KLOADCONTEXT
 	iretq
 
 ;; Parallel Port 2 ISR
@@ -399,7 +399,7 @@ kISRParallel2:
 	mov rdi, 37
 	call kCommonInterruptHandler
 
-	KSAVECONTEXT
+	KLOADCONTEXT
 	iretq
 
 ; Floppy Disk ISR
@@ -409,7 +409,7 @@ kISRFloppy:
 	mov rdi, 38
 	call kCommonInterruptHandler
 
-	KSAVECONTEXT
+	KLOADCONTEXT
 	iretq
 
 ; Parallel Port 1 ISR
@@ -419,7 +419,7 @@ kISRParallel1:
 	mov rdi, 39
 	call kCommonInterruptHandler
 
-	KSAVECONTEXT
+	KLOADCONTEXT
 	iretq
 
 ; RTC ISR
@@ -429,7 +429,7 @@ kISRRTC:
 	mov rdi, 40
 	call kCommonInterruptHandler
 
-	KSAVECONTEXT
+	KLOADCONTEXT
 	iretq
 
 ; Reserved ISR
@@ -439,7 +439,7 @@ kISRReserved:
 	mov rdi, 41
 	call kCommonInterruptHandler
 
-	KSAVECONTEXT
+	KLOADCONTEXT
 	iretq
 
 ; Not Used 1
@@ -449,7 +449,7 @@ kISRNotUsed1:
 	mov rdi, 42
 	call kCommonInterruptHandler
 
-	KSAVECONTEXT
+	KLOADCONTEXT
 	iretq
 
 ; Not Used 2
@@ -459,7 +459,7 @@ kISRNotUsed2:
 	mov rdi, 43
 	call kCommonInterruptHandler
 
-	KSAVECONTEXT
+	KLOADCONTEXT
 	iretq
 
 ; Mouse ISR
@@ -469,7 +469,7 @@ kISRMouse:
 	mov rdi, 44
 	call kCommonInterruptHandler
 
-	KSAVECONTEXT
+	KLOADCONTEXT
 	iretq
 
 ; Coprocessor ISR
@@ -479,7 +479,7 @@ kISRCoprocessor:
 	mov rdi, 45
 	call kCommonInterruptHandler
 
-	KSAVECONTEXT
+	KLOADCONTEXT
 	iretq
 
 ; Hard Disk 1 ISR
@@ -489,7 +489,7 @@ kISRHDD1:
 	mov rdi, 46
 	call kCommonInterruptHandler
 
-	KSAVECONTEXT
+	KLOADCONTEXT
 	iretq
 
 ; Hard Disk 2 ISR
@@ -499,7 +499,7 @@ kISRHDD2:
 	mov rdi, 47
 	call kCommonInterruptHandler
 
-	KSAVECONTEXT
+	KLOADCONTEXT
 	iretq
 
 ; ETC ISR
@@ -509,5 +509,5 @@ kISRETCInterrupt:
 	mov rdi, 48
 	call kCommonInterruptHandler
 
-	KSAVECONTEXT
+	KLOADCONTEXT
 	iretq
