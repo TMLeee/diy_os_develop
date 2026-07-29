@@ -77,7 +77,7 @@ int kStrLen(const char* str)
 void kCheckTotalRAMSize(void)
 {
 	DWORD* poCurAddr;
-	DWORD* dwPreValue;
+	DWORD dwPreValue;		// 주소가 아니라 원래 들어있던 '값'을 잠깐 보관하는 용도
 
 	// 64MB 부터 4MB 단위로 검사 시작
 	poCurAddr = (DWORD*)0x4000000;

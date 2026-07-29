@@ -34,7 +34,7 @@ void kInitializeTCBPool(void)
 
 TCB_t *kAllocateTCB(void)
 {
-	TCB_t* poEmptyTCB;
+	TCB_t* poEmptyTCB = NULL;
 	int i;
 
 	if(gstTCBPoolManager.iUseCnt == gstTCBPoolManager.iMaxCnt) {
@@ -46,6 +46,12 @@ TCB_t *kAllocateTCB(void)
 			poEmptyTCB = &(gstTCBPoolManager.poStartAddr[i]);
 			break;
 		}
+	}
+
+	// iUseCnt와 실제 풀 내용이 어긋나면 스캔이 빈손으로 끝난다.
+	// 그대로 두면 초기화되지 않은 포인터에 쓰게 되므로 여기서 끊는다.
+	if(NULL == poEmptyTCB) {
+		return NULL;
 	}
 
 	poEmptyTCB->stLink.qwID = ((QWORD)gstTCBPoolManager.iAllocatedCnt << 32) | i;

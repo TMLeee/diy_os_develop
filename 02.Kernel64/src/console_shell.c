@@ -22,7 +22,7 @@ ShellCmdEntry_t gtCommandTable[] =
 		{"totalram", "Show Total RAM Size", kShowTotalRAMSize},
 		{"strtod", "String to Decimal/Hex Convert", kStringToDecimalHexTest},
 		{"shutdown", "Showdown and Reboot System", kShutdown},
-		{"settiner", "Set PIT Controller Counter0, ex)settimer 10[ms] 1[periodic]", kSetTimer},
+		{"settimer", "Set PIT Controller Counter0, ex)settimer 10[ms] 1[periodic]", kSetTimer},
 		{"wait", "Wait ms Using PIT, ex)wait 100[ms]", kWaitUsingPIT},
 		{"rdtsc", "Read Time Stamp Counter", kReadTimeStampCounter},
 		{"cpuspeed", "Measure Processor Speed", kMeasureProcessorSpeed},
@@ -227,7 +227,9 @@ void kSetTimer(const char* poParamBuff)
 	kInitializeParam(&stList, poParamBuff);
 
 	// milisecond
-	if(0 == kGetNextParam(&stList, poParamBuff)) {
+	// 출력 버퍼는 vcParam이다. poParamBuff(입력, const)를 넘기면
+	// 파싱 결과가 입력을 덮어쓰고 정작 vcParam은 초기화되지 않은 채 읽힌다.
+	if(0 == kGetNextParam(&stList, vcParam)) {
 		kPrintf("ex) settimer 10[ms] 1[periodic]\n");
 		return;
 	}
