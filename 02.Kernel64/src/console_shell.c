@@ -52,9 +52,7 @@ void kStartConsoleShell(void)
 				kSetCursor(iCursorX-1, iCursorY);
 				--iCmdBuffIdx;
 
-				// 화면 지우기는 kPrintStringXY/kSetCursor로 처리되어
-				// kConsolePrintString을 거치지 않는다. 시리얼 로그에 지워진
-				// 문자가 남으면 실행된 명령과 로그가 달라지므로 직접 지운다.
+				// 이 경로는 kConsolePrintString을 안 거치므로 시리얼은 직접 지운다
 				kSerialPutString("\b \b");
 			}
 		}
@@ -226,9 +224,7 @@ void kSetTimer(const char* poParamBuff)
 
 	kInitializeParam(&stList, poParamBuff);
 
-	// milisecond
-	// 출력 버퍼는 vcParam이다. poParamBuff(입력, const)를 넘기면
-	// 파싱 결과가 입력을 덮어쓰고 정작 vcParam은 초기화되지 않은 채 읽힌다.
+	// milisecond (두 번째 인자는 출력 버퍼)
 	if(0 == kGetNextParam(&stList, vcParam)) {
 		kPrintf("ex) settimer 10[ms] 1[periodic]\n");
 		return;

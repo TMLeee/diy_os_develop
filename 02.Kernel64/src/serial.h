@@ -28,11 +28,7 @@
 #define SERIAL_LCR_8N1				0x03	// 8bit, No Parity, 1 Stop Bit
 #define SERIAL_LCR_DLAB				0x80	// Divisor Latch Access Bit
 
-// IER: 인터럽트 전부 비활성화
-// IRQ3(벡터 35)/IRQ4(벡터 36)용 게이트는 descriptor.c에 이미 등록되어 있으나
-// 범용 핸들러(kCommonInterruptHandler)로만 연결되어 있다.
-// 시리얼을 인터럽트 구동으로 바꾸려면 전용 핸들러부터 만들어야 하므로,
-// 그때까지는 IER=0으로 두어 폴링 전용임을 보장한다.
+// IER: 인터럽트 전부 비활성화 (전용 ISR이 없으므로 폴링 전용)
 #define SERIAL_IER_DISABLE_ALL		0x00
 
 // FCR: FIFO Enable + Rx/Tx FIFO Clear + 14byte Trigger
@@ -44,8 +40,7 @@
 // LSR
 #define SERIAL_LSR_THR_EMPTY		0x20	// bit5, 송신 홀딩 레지스터 비어있음
 
-// THR이 빌 때 까지 대기하는 최대 횟수
-// UART가 없거나 응답하지 않는 환경에서도 부팅이 멈추지 않도록 반드시 상한을 둔다
+// THR 대기 상한. UART가 없어도 부팅이 멈추지 않도록
 #define SERIAL_MAX_SPIN_CNT			100000
 
 

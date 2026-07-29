@@ -1,15 +1,5 @@
 NASM64 = nasm -f elf64 -g -F dwarf
-#   -mno-red-zone                  : SysV의 128바이트 red zone 금지. 인터럽트가
-#                                    인터럽트된 컨텍스트의 [rsp-128]을 밟는 것을 막는다.
-#                                    현재는 모든 IDT 게이트가 IST를 쓰기 때문에 CPU가
-#                                    항상 스택을 바꿔서 우연히 안전할 뿐이다.
-#   -fno-stack-protector           : __stack_chk_fail 같은 libc 심볼 참조 방지
-#   -fno-asynchronous-unwind-tables : .eh_frame 제거. objcopy가 .eh_frame을 버리므로
-#                                    이게 있으면 링커 심볼 _end가 커널 이미지 끝과
-#                                    어긋난다(현재 _end=0x207FE8 vs .bss끝=0x206148).
-#   -fno-pic -fno-pie              : const 포인터 테이블이 .data.rel.ro로 가버리면
-#                                    objcopy의 -j 목록에 없어서 이미지에서 통째로
-#                                    사라진다. 절대 주소 코드를 강제한다.
+# 커널용 필수 플래그: red zone 금지, .eh_frame 제거, .data.rel.ro 방지
 GCC64 = x86_64-pc-linux-gcc.exe -c -g -gdwarf-4 -m64 -ffreestanding \
         -mno-red-zone -fno-stack-protector -fno-asynchronous-unwind-tables \
         -fno-pic -fno-pie -Wall

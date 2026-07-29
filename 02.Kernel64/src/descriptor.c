@@ -131,9 +131,7 @@ void kInitTDTTable(void)
 	kSetIDTEntry(&(poEntry[45]), kISRCoprocessor, 0x08, IDT_FLAG_IST1, IDT_FLAG_KENREL, IDT_TYPE_INTERRUPT);
 	kSetIDTEntry(&(poEntry[46]), kISRHDD1, 0x08, IDT_FLAG_IST1, IDT_FLAG_KENREL, IDT_TYPE_INTERRUPT);
 	kSetIDTEntry(&(poEntry[47]), kISRHDD2, 0x08, IDT_FLAG_IST1, IDT_FLAG_KENREL, IDT_TYPE_INTERRUPT);
-	// 주의: IDT_TBL_SIZE는 바이트 수(100 * 16 = 1600)이고 IDT_ENTRY_SIZE가
-	// 엔트리 개수(100)다. 여기는 엔트리 인덱스이므로 IDT_ENTRY_SIZE를 써야 한다.
-	// (같은 매크로가 90행에서는 wLimit 용으로 바이트 수로 쓰이는 것이 맞다)
+	// IDT_TBL_SIZE는 바이트 수(1600). 여기는 엔트리 인덱스다
 	for(i=48; i<IDT_ENTRY_SIZE; ++i) {
 		kSetIDTEntry(&(poEntry[i]), kISRETCInterrupt, 0x08, IDT_FLAG_IST1, IDT_FLAG_KENREL, IDT_TYPE_INTERRUPT);
 	}
@@ -147,8 +145,7 @@ void kSetIDTEntry(IDTEntry_t *poEntry, void* pvHandler, WORD wSelector,
 	// IDT Gate Decriptor 설정
 	poEntry->wLowBaseAddr = (QWORD)pvHandler & 0xFFFF;
 	poEntry->wSegSelector = wSelector;
-	// IST 필드는 3비트(0~7)다. 0x03으로 마스킹하면 IST4~IST7이 조용히 사라진다.
-	poEntry->ucIST = ucIST & 0x07;
+	poEntry->ucIST = ucIST & 0x07;		// IST 필드는 3비트
 	poEntry->ucTypeAndFlag = ucType | ucFlag;
 	poEntry->wMidBaseAddr = (((QWORD)pvHandler) >> 16) & 0xFFFF;
 	poEntry->dwUppBaseAddr = ((QWORD)pvHandler) >> 32;

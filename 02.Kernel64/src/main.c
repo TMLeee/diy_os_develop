@@ -33,8 +33,7 @@ void main(void)
 {
 	int iCursorX, iCursorY;
 
-	// 시리얼(COM1)을 가장 먼저 초기화한다.
-	// 콘솔/GDT/IDT 초기화 도중에 죽더라도 로그가 남아야 하므로 반드시 최초 실행.
+	// 이후 초기화 중에 죽어도 로그가 남도록 가장 먼저 실행
 	kInitializeSerial();
 	kSerialPutString("\n[SERIAL] COM1 115200 8N1 Ready - Kernel64 Boot\n");
 

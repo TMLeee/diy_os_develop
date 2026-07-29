@@ -34,14 +34,8 @@
             "problemMatcher": []
         },
         {
-            // QEMU 실행 (빌드 후 Disk.img 부팅) - 모던 QEMU 11
-            //   -serial stdio : 커널의 COM1 출력을 이 터미널로 (kInitializeSerial)
-            //                   화면은 스크롤되면 지나간 내용을 잃지만 여기에는 전부 남는다
-            //   -no-reboot    : 트리플폴트 시 재부팅 루프 대신 종료 -> 원인 추적 가능
-            //                   (-no-shutdown 은 붙이지 말 것. shutdown 셸 명령이
-            //                    8042 리셋을 쓰는데 QEMU가 종료되지 않고 얼어붙는다)
-            // 게스트로 키 입력은 QEMU 창에 해야 한다. 셸은 PS/2 큐만 읽으므로
-            // 이 터미널에 타이핑해도 UART RX FIFO에 쌓이기만 하고 소비되지 않는다.
+            // QEMU 11 실행. -serial stdio로 COM1 로그 확인, -no-reboot로 트리플폴트 추적
+            // (-no-shutdown은 금지: shutdown 명령의 8042 리셋에서 QEMU가 얼어붙는다)
             "label": "run (QEMU)",
             "type": "shell",
             "command": "& 'C:/Program Files/qemu/qemu-system-x86_64.exe' -m 64 -fda '${workspaceFolder}/Disk.img' -boot a -M pc -rtc base=localtime -serial stdio -no-reboot",

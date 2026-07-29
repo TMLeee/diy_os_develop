@@ -48,8 +48,7 @@ TCB_t *kAllocateTCB(void)
 		}
 	}
 
-	// iUseCnt와 실제 풀 내용이 어긋나면 스캔이 빈손으로 끝난다.
-	// 그대로 두면 초기화되지 않은 포인터에 쓰게 되므로 여기서 끊는다.
+	// 스캔이 빈손이면 초기화되지 않은 포인터에 쓰게 되므로 여기서 끊는다
 	if(NULL == poEmptyTCB) {
 		return NULL;
 	}
