@@ -7,6 +7,9 @@ global kInPortByte, kOutPortByte, kLoadGDTR, kLoadTR, kLoadIDTR
 global kEnableInterrupt, kDisableInterrupt, kReadRFLAGS
 global kReadTSC
 global kSwitchContext
+global kReadCR0, kReadCR2, kReadCR3, kReadCR4
+global kHlt
+global kReadMSR, kWriteMSR
 
 ; 포트로부터 1바이트를 읽어옴
 ; BYTE kInPortByte(WORD wPort)
@@ -92,6 +95,62 @@ kReadTSC:
 	or rax, rdx
 
 	pop rdx
+	ret
+
+; QWORD kReadCR0/2/3/4(void)
+kReadCR0:
+	mov rax, cr0
+	ret
+
+kReadCR2:
+	mov rax, cr2
+	ret
+
+kReadCR3:
+	mov rax, cr3
+	ret
+
+kReadCR4:
+	mov rax, cr4
+	ret
+
+; void kHlt(void)
+kHlt:
+	hlt
+	ret
+
+; void kReadMSR(DWORD dwMSR, QWORD* pqwValue)
+kReadMSR:
+	push rax
+	push rcx
+	push rdx
+
+	mov rcx, rdi
+	rdmsr					; ECX의 MSR 번호를 읽어 EDX:EAX로 반환
+	shl rdx, 32
+	or rax, rdx
+	mov qword [ rsi ], rax
+
+	pop rdx
+	pop rcx
+	pop rax
+	ret
+
+; void kWriteMSR(DWORD dwMSR, QWORD qwValue)
+kWriteMSR:
+	push rax
+	push rcx
+	push rdx
+
+	mov rcx, rdi
+	mov rax, rsi
+	mov rdx, rsi
+	shr rdx, 32
+	wrmsr					; ECX의 MSR에 EDX:EAX를 씀
+
+	pop rdx
+	pop rcx
+	pop rax
 	ret
 
 ; Context를 저장하고 셀렉터를 교체하는 메크로

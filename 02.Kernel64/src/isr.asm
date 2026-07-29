@@ -84,6 +84,11 @@ global kISRETCInterrupt
 	mov es, ax
 	mov gs, ax
 	mov fs, ax
+
+	; 핸들러 공통 인자. 삽입하는 QWORD 수는 변하지 않는다
+	; RDX(3번째) = 저장된 레지스터 프레임 주소, RSI(2번째) = 에러코드 기본값 0
+	mov rdx, rsp
+	xor rsi, rsi
 %endmacro
 
 ; 콘텍스트 복원 메크로
@@ -201,7 +206,9 @@ kISRDoubleFault:
 
 	mov rdi, 8
 	mov rsi, qword [rbp+8]
+	sub rsp, 8					; 에러코드 벡터는 프레임이 8만큼 밀려 RSP가 16정렬이 아니다
 	call kCommonExceptionHandler
+	add rsp, 8
 
 	KLOADCONTEXT
 	add rsp, 8
@@ -223,7 +230,9 @@ kISRInvalidTSS:
 
 	mov rdi, 10
 	mov rsi, qword [rbp+8]
+	sub rsp, 8					; 에러코드 벡터는 프레임이 8만큼 밀려 RSP가 16정렬이 아니다
 	call kCommonExceptionHandler
+	add rsp, 8
 
 	KLOADCONTEXT
 	add rsp, 8
@@ -235,7 +244,9 @@ kISRSegmentNotPresent:
 
 	mov rdi, 11
 	mov rsi, qword [rbp+8]
+	sub rsp, 8					; 에러코드 벡터는 프레임이 8만큼 밀려 RSP가 16정렬이 아니다
 	call kCommonExceptionHandler
+	add rsp, 8
 
 	KLOADCONTEXT
 	add rsp, 8
@@ -247,7 +258,9 @@ kISRStackSegmentFault:
 
 	mov rdi, 12
 	mov rsi, qword [rbp+8]
+	sub rsp, 8					; 에러코드 벡터는 프레임이 8만큼 밀려 RSP가 16정렬이 아니다
 	call kCommonExceptionHandler
+	add rsp, 8
 
 	KLOADCONTEXT
 	add rsp, 8
@@ -259,7 +272,9 @@ kISRGeneralProtection:
 
 	mov rdi, 13
 	mov rsi, qword [rbp+8]
+	sub rsp, 8					; 에러코드 벡터는 프레임이 8만큼 밀려 RSP가 16정렬이 아니다
 	call kCommonExceptionHandler
+	add rsp, 8
 
 	KLOADCONTEXT
 	add rsp, 8
@@ -271,7 +286,9 @@ kISRPageFault:
 
 	mov rdi, 14
 	mov rsi, qword [rbp+8]
+	sub rsp, 8					; 에러코드 벡터는 프레임이 8만큼 밀려 RSP가 16정렬이 아니다
 	call kCommonExceptionHandler
+	add rsp, 8
 
 	KLOADCONTEXT
 	add rsp, 8
@@ -303,7 +320,9 @@ kISRAlignmentCheck:
 
 	mov rdi, 17
 	mov rsi, qword [rbp+8]
+	sub rsp, 8					; 에러코드 벡터는 프레임이 8만큼 밀려 RSP가 16정렬이 아니다
 	call kCommonExceptionHandler
+	add rsp, 8
 
 	KLOADCONTEXT
 	add rsp, 8

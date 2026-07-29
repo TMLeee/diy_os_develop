@@ -21,6 +21,13 @@ void kDisableInterrupt(void);
 QWORD kReadRFLAGS(void);
 QWORD kReadTSC(void);
 void kSwitchContext(Context_t* poCurrContext, Context_t* poNextContext);
+QWORD kReadCR0(void);
+QWORD kReadCR2(void);
+QWORD kReadCR3(void);
+QWORD kReadCR4(void);
+void kHlt(void);
+void kReadMSR(DWORD dwMSR, QWORD* pqwValue);
+void kWriteMSR(DWORD dwMSR, QWORD qwValue);
 
 
 #endif /* 02_KERNEL64_SRC_ASSEMBLY_UTILS_H_ */

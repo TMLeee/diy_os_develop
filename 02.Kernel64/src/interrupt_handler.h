@@ -11,7 +11,7 @@
 #include "types.h"
 
 void kTimerHandler(int iVectorNum);
-void kCommonExceptionHandler(int iVectorNum, QWORD qwErrCode);
+void kCommonExceptionHandler(int iVectorNum, QWORD qwErrCode, QWORD* pqwFrame);
 void kCommonInterruptHandler(int iVectorNum);
 void kKeyboardHandler(int iVectorNum);
 

@@ -27,7 +27,8 @@ ShellCmdEntry_t gtCommandTable[] =
 		{"rdtsc", "Read Time Stamp Counter", kReadTimeStampCounter},
 		{"cpuspeed", "Measure Processor Speed", kMeasureProcessorSpeed},
 		{"date", "Show Data and Time", kShowDateAndTime},
-		{"createtask", "Create Task, ex)createtask 1(type) 10(count)", kCreateTestTask}
+		{"createtask", "Create Task, ex)createtask 1(type) 10(count)", kCreateTestTask},
+		{"crash", "Raise an exception, ex)crash div0|pf|gp|ud", kCrash}
 };
 
 
@@ -448,5 +449,45 @@ void kCreateTestTask(const char* poParamBuff)
         
         kPrintf( "Task2 %d Created\n", i );
         break;
-    }    
+    }
+}
+
+
+// 예외 덤프 경로를 직접 확인하기 위해 일부러 예외를 일으킨다
+void kCrash(const char* poParamBuff)
+{
+	ParamList_t stList;
+	char vcType[30] = {0,};
+	// 양쪽 모두 volatile이어야 한다. 분자가 상수면 GCC가 나눗셈을 접어버린다
+	volatile int iNum = 1;
+	volatile int iZero = 0;
+	volatile int iResult;
+
+	kInitializeParam(&stList, poParamBuff);
+	if(0 == kGetNextParam(&stList, vcType)) {
+		kPrintf("ex) crash div0|pf|gp|ud\n");
+		return;
+	}
+
+	if(0 == kMemCmp(vcType, "div0", 4)) {
+		kPrintf("Raising #DE...\n");
+		iResult = iNum / iZero;
+		kPrintf("no fault: %d\n", iResult);
+	}
+	else if(0 == kMemCmp(vcType, "pf", 2)) {
+		kPrintf("Raising #PF...\n");
+		*(volatile QWORD*)0xFFFF800000000000 = 0x1234;
+	}
+	else if(0 == kMemCmp(vcType, "gp", 2)) {
+		kPrintf("Raising #GP...\n");
+		// GDT 한계(0x27)를 넘는 셀렉터를 적재
+		__asm__ __volatile__ ("mov $0x50, %%ax; mov %%ax, %%ds" ::: "rax");
+	}
+	else if(0 == kMemCmp(vcType, "ud", 2)) {
+		kPrintf("Raising #UD...\n");
+		__asm__ __volatile__ ("ud2");
+	}
+	else {
+		kPrintf("ex) crash div0|pf|gp|ud\n");
+	}
 }

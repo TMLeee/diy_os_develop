@@ -14,6 +14,7 @@
 #include "utility.h"
 #include "task.h"
 #include "descriptor.h"
+#include "panic.h"
 
 
 void kTimerHandler(int iVectorNum)
@@ -38,20 +39,20 @@ void kTimerHandler(int iVectorNum)
 }
 
 
-void kCommonExceptionHandler(int iVectorNum, QWORD qwErrCode)
+// isr.asm이 넘기는 인자: RDI=벡터, RSI=에러코드(없으면 0), RDX=레지스터 프레임
+void kCommonExceptionHandler(int iVectorNum, QWORD qwErrCode, QWORD* pqwFrame)
 {
-	char vcBuffer[3] = {0,};
+	BOOL bHasErrCode;
 
-	// 인터럽트 백터 번호 출력
-	vcBuffer[0] = '0' + (iVectorNum / 10);
-	vcBuffer[1] = '0' + (iVectorNum % 10);
-	vcBuffer[2] = '\0';
+	kDisableInterrupt();
 
-	kPrintStringXY(0, 0, "===============================================");
-	kPrintStringXY(0, 1, "Exception Occurred! Vector: ");
-	kPrintStringXY(27, 1, vcBuffer);
+	bHasErrCode = kIsExceptionHasErrCode(iVectorNum);
+	if(FALSE == bHasErrCode) {
+		qwErrCode = 0;
+	}
 
-	while(1);
+	kDumpRegisters(pqwFrame, iVectorNum, qwErrCode, bHasErrCode);
+	kPanic("Unhandled exception %d (%s)", iVectorNum, kGetExceptionName(iVectorNum));
 }
 
 
