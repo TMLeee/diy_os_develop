@@ -24,6 +24,8 @@ long kAToI(const char* str, int iRadix);
 QWORD kHexStringToQword(const char* str);
 long kDecimalStringToLong(const char* str);
 int kIToA(long lValue, char* str, int iRadix);
+void kToHexString(QWORD qwValue, char* pcBuff, int iDigits);
+int kUIToDecString(QWORD qwValue, char* pcBuff);
 int kHexToString(QWORD qwValue, char* str);
 int kDecimalToString(long lValue, char* str);
 int kSPrintf(char* str, const char* format, ...);

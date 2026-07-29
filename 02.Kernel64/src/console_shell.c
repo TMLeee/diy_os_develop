@@ -13,6 +13,7 @@
 #include "rtc.h"
 #include "assembly_utils.h"
 #include "serial.h"
+#include "memmap.h"
 
 
 ShellCmdEntry_t gtCommandTable[] =
@@ -28,7 +29,8 @@ ShellCmdEntry_t gtCommandTable[] =
 		{"cpuspeed", "Measure Processor Speed", kMeasureProcessorSpeed},
 		{"date", "Show Data and Time", kShowDateAndTime},
 		{"createtask", "Create Task, ex)createtask 1(type) 10(count)", kCreateTestTask},
-		{"crash", "Raise an exception, ex)crash div0|pf|gp|ud", kCrash}
+		{"crash", "Raise an exception, ex)crash div0|pf|gp|ud", kCrash},
+		{"memmap", "Show E820 Physical Memory Map", kShowMemoryMap}
 };
 
 
@@ -490,4 +492,10 @@ void kCrash(const char* poParamBuff)
 	else {
 		kPrintf("ex) crash div0|pf|gp|ud\n");
 	}
+}
+
+
+void kShowMemoryMap(const char* poParamBuff)
+{
+	kPrintMemoryMap();
 }

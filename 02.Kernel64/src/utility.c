@@ -291,6 +291,46 @@ int kSPrintf(char* str, const char* format, ...)
 }
 
 
+// 0으로 채운 고정폭 16진 문자열. kVSPrintf에 폭 지정이 없어서 필요하다
+void kToHexString(QWORD qwValue, char* pcBuff, int iDigits)
+{
+	int i;
+	BYTE ucNibble;
+
+	for(i=0; i<iDigits; ++i) {
+		ucNibble = (BYTE)((qwValue >> ((iDigits - 1 - i) * 4)) & 0x0F);
+		pcBuff[i] = (9 < ucNibble) ? ('A' + ucNibble - 10) : ('0' + ucNibble);
+	}
+	pcBuff[iDigits] = '\0';
+}
+
+
+// 부호 없는 64비트 10진 변환. kVSPrintf의 %d는 int로 잘리므로 필요하다
+int kUIToDecString(QWORD qwValue, char* pcBuff)
+{
+	char vcTmp[24];
+	int iLen = 0;
+	int i;
+
+	if(0 == qwValue) {
+		pcBuff[0] = '0';
+		pcBuff[1] = '\0';
+		return 1;
+	}
+
+	while(0 < qwValue) {
+		vcTmp[iLen] = '0' + (char)(qwValue % 10);
+		qwValue /= 10;
+		++iLen;
+	}
+	for(i=0; i<iLen; ++i) {
+		pcBuff[i] = vcTmp[iLen - 1 - i];
+	}
+	pcBuff[iLen] = '\0';
+	return iLen;
+}
+
+
 int kVSPrintf(char* str, const char* format, va_list ap)
 {
 	QWORD i;

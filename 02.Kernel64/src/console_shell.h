@@ -57,6 +57,7 @@ void kMeasureProcessorSpeed(const char* poParamBuff);
 void kShowDateAndTime(const char* poParamBuff);
 void kCreateTestTask(const char* poParamBuff);
 void kCrash(const char* poParamBuff);
+void kShowMemoryMap(const char* poParamBuff);
 
 
 #endif /* 02_KERNEL64_SRC_CONSOLE_SHELL_H_ */

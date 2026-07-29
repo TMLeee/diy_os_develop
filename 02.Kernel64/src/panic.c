@@ -57,19 +57,6 @@ static char gvcPanicLine[512];
 static char gvcPanicMsg[512];
 
 
-static void kToHex(QWORD qwValue, char* pcBuff, int iDigits)
-{
-	int i;
-	BYTE ucNibble;
-
-	for(i=0; i<iDigits; ++i) {
-		ucNibble = (BYTE)((qwValue >> ((iDigits - 1 - i) * 4)) & 0x0F);
-		pcBuff[i] = (9 < ucNibble) ? ('A' + ucNibble - 10) : ('0' + ucNibble);
-	}
-	pcBuff[iDigits] = '\0';
-}
-
-
 // 콘솔 상태에 의존하지 않고 직접 준비한다. 콘솔 초기화 전에도 동작해야 하므로
 static void kPanicBeginOutput(void)
 {
@@ -119,8 +106,8 @@ static void kPanicPrintReg2(const char* pcName1, QWORD qwValue1,
 {
 	char vcHex1[17], vcHex2[17];
 
-	kToHex(qwValue1, vcHex1, 16);
-	kToHex(qwValue2, vcHex2, 16);
+	kToHexString(qwValue1, vcHex1, 16);
+	kToHexString(qwValue2, vcHex2, 16);
 	kPanicPrintf(" %s=%s   %s=%s", pcName1, vcHex1, pcName2, vcHex2);
 }
 
@@ -130,9 +117,9 @@ static void kPanicPrintReg3(const char* pcName1, QWORD qwValue1,
 {
 	char vcHex1[17], vcHex2[17], vcHex3[17];
 
-	kToHex(qwValue1, vcHex1, 16);
-	kToHex(qwValue2, vcHex2, 16);
-	kToHex(qwValue3, vcHex3, 16);
+	kToHexString(qwValue1, vcHex1, 16);
+	kToHexString(qwValue2, vcHex2, 16);
+	kToHexString(qwValue3, vcHex3, 16);
 	kPanicPrintf(" %s=%s  %s=%s  %s=%s",
 			pcName1, vcHex1, pcName2, vcHex2, pcName3, vcHex3);
 }
@@ -156,7 +143,7 @@ static void kPanicPrintErrCodeDetail(int iVectorNum, QWORD qwErrCode)
 					(int)((qwErrCode >> 3) & 0x01),
 					(int)((qwErrCode >> 4) & 0x01),
 					((qwErrCode >> 4) & 0x01) ? "Instruction Fetch" : "Data Access");
-			kToHex(kReadCR2(), vcHex, 16);
+			kToHexString(kReadCR2(), vcHex, 16);
 			kPanicPrintf("   Faulting Address(CR2)=0x%s", vcHex);
 			break;
 
@@ -224,7 +211,7 @@ void kDumpRegisters(QWORD* pqwFrame, int iVectorNum, QWORD qwErrCode, BOOL bHasE
 			iVectorNum, (DWORD)iVectorNum, kGetExceptionName(iVectorNum));
 
 	if(TRUE == bHasErrCode) {
-		kToHex(qwErrCode, vcHex, 16);
+		kToHexString(qwErrCode, vcHex, 16);
 		kPanicPrintf(" ErrCode: 0x%s", vcHex);
 		kPanicPrintErrCodeDetail(iVectorNum, qwErrCode);
 	}
@@ -268,12 +255,12 @@ void kDumpRegisters(QWORD* pqwFrame, int iVectorNum, QWORD qwErrCode, BOOL bHasE
 	kPanicPrintReg2("R14", pqwFrame[PANIC_FRAME_R14_IDX],
 					"R15", pqwFrame[PANIC_FRAME_R15_IDX]);
 
-	kToHex(pqwFrame[PANIC_FRAME_DS_IDX], vcDS, 4);
-	kToHex(pqwFrame[PANIC_FRAME_ES_IDX], vcES, 4);
-	kToHex(pqwFrame[PANIC_FRAME_FS_IDX], vcFS, 4);
-	kToHex(pqwFrame[PANIC_FRAME_GS_IDX], vcGS, 4);
-	kToHex(qwCS, vcCS, 4);
-	kToHex(qwSS, vcSS, 4);
+	kToHexString(pqwFrame[PANIC_FRAME_DS_IDX], vcDS, 4);
+	kToHexString(pqwFrame[PANIC_FRAME_ES_IDX], vcES, 4);
+	kToHexString(pqwFrame[PANIC_FRAME_FS_IDX], vcFS, 4);
+	kToHexString(pqwFrame[PANIC_FRAME_GS_IDX], vcGS, 4);
+	kToHexString(qwCS, vcCS, 4);
+	kToHexString(qwSS, vcSS, 4);
 	kPanicPrintf(" DS=%s ES=%s FS=%s GS=%s CS=%s SS=%s",
 			vcDS, vcES, vcFS, vcGS, vcCS, vcSS);
 }

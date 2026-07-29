@@ -15,6 +15,7 @@
 #include "pic.h"
 #include "serial.h"
 #include "utility.h"
+#include "memmap.h"
 
 
 void kPrintString(int x, int y, const char* str)
@@ -59,6 +60,16 @@ void main(void)
 	kLoadIDTR(IDTR_START_ADDR);
 	kSetCursor(37, iCursorY++);
 	kPrintf(" OK \n");
+
+	kPrintf("Reading E820 Memory Map.............[    ]\n");
+	if(TRUE == kInitializeMemoryMap()) {
+		kSetCursor(37, iCursorY++);
+		kPrintf(" OK \n");
+	}
+	else {
+		kSetCursor(37, iCursorY++);
+		kPrintf("Fail\n");
+	}
 
 	kPrintf("Check System RAM Size...............[    ]\n");
 	kCheckTotalRAMSize();
