@@ -60,6 +60,7 @@ void kCrash(const char* poParamBuff);
 void kShowMemoryMap(const char* poParamBuff);
 void kShowPhysMemStat(const char* poParamBuff);
 void kAllocTest(const char* poParamBuff);
+void kPageWalkTest(const char* poParamBuff);
 
 
 #endif /* 02_KERNEL64_SRC_CONSOLE_SHELL_H_ */

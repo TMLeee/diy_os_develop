@@ -8,6 +8,8 @@ global kEnableInterrupt, kDisableInterrupt, kReadRFLAGS
 global kReadTSC
 global kSwitchContext
 global kReadCR0, kReadCR2, kReadCR3, kReadCR4
+global kWriteCR0, kWriteCR3, kWriteCR4
+global kInvlpg, kFlushTLB
 global kHlt
 global kReadMSR, kWriteMSR
 
@@ -112,6 +114,30 @@ kReadCR3:
 
 kReadCR4:
 	mov rax, cr4
+	ret
+
+; void kWriteCR0/3/4(QWORD qwValue)
+kWriteCR0:
+	mov cr0, rdi
+	ret
+
+kWriteCR3:
+	mov cr3, rdi
+	ret
+
+kWriteCR4:
+	mov cr4, rdi
+	ret
+
+; void kInvlpg(QWORD qwVirtAddr)
+kInvlpg:
+	invlpg [rdi]
+	ret
+
+; void kFlushTLB(void) - CR3 재적재로 global이 아닌 모든 엔트리를 비운다
+kFlushTLB:
+	mov rax, cr3
+	mov cr3, rax
 	ret
 
 ; void kHlt(void)

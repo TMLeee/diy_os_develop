@@ -15,6 +15,7 @@
 #include "serial.h"
 #include "memmap.h"
 #include "pmm.h"
+#include "paging.h"
 
 
 ShellCmdEntry_t gtCommandTable[] =
@@ -33,7 +34,8 @@ ShellCmdEntry_t gtCommandTable[] =
 		{"crash", "Raise an exception, ex)crash div0|pf|gp|ud", kCrash},
 		{"memmap", "Show E820 Physical Memory Map", kShowMemoryMap},
 		{"pmemstat", "Show Physical Frame Allocator Stat", kShowPhysMemStat},
-		{"alloctest", "Alloc/Free Frames, ex)alloctest 100 0(order)", kAllocTest}
+		{"alloctest", "Alloc/Free Frames, ex)alloctest 100 0(order)", kAllocTest},
+		{"pgwalk", "Walk Page Tables, ex)pgwalk 202000", kPageWalkTest}
 };
 
 
@@ -507,6 +509,23 @@ void kShowMemoryMap(const char* poParamBuff)
 void kShowPhysMemStat(const char* poParamBuff)
 {
 	kPrintPhysicalMemoryStat();
+}
+
+
+void kPageWalkTest(const char* poParamBuff)
+{
+	ParamList_t stList;
+	char vcParam[30];
+	QWORD qwVirtAddr;
+
+	kInitializeParam(&stList, poParamBuff);
+	if(0 == kGetNextParam(&stList, vcParam)) {
+		kPrintf("ex) pgwalk 202000\n");
+		return;
+	}
+
+	qwVirtAddr = (QWORD)kAToI(vcParam, 16);
+	kDumpPageWalk(kReadCR3(), qwVirtAddr);
 }
 
 
