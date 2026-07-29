@@ -251,7 +251,6 @@ void kWaitUsingPIT(const char* poParamBuff)
 {
 	char vcParam[100];
 	ParamList_t stList;
-	int iLength;
 	long lMilisecond;
 	int i;
 

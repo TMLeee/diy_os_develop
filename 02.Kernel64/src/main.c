@@ -31,11 +31,6 @@ void kPrintString(int x, int y, const char* str)
 
 void main(void)
 {
-	char vcTmp[2] = {0,};
-	BYTE ucFlag;
-	BYTE ucTmp;
-	int i=0;
-	KeyData_t tKeyData;
 	int iCursorX, iCursorY;
 
 	// 시리얼(COM1)을 가장 먼저 초기화한다.

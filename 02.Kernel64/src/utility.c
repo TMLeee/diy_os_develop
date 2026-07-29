@@ -293,7 +293,7 @@ int kSPrintf(char* str, const char* format, ...)
 
 int kVSPrintf(char* str, const char* format, va_list ap)
 {
-	QWORD i, j;
+	QWORD i;
 	int iBuffIdx = 0;
 	int iFormatLength, iCpyLength;
 	char* poCpyStr;

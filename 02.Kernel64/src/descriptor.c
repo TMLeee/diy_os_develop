@@ -16,7 +16,6 @@ void kInitGDTTableAndTSS(void)
 	GDTR* poGDTR;
 	GDTEntry8_t* poEntry;
 	TSSSegment_t* poTSS;
-	int i;
 
 	// GDTR 설정
 	poGDTR = (GDTR*) GDTR_START_ADDR;

@@ -10,6 +10,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <fcntl.h>
+#include <unistd.h>		// read/write/lseek/close
 #include <io.h>
 #include <sys/types.h>
 #include <sys/stat.h>
