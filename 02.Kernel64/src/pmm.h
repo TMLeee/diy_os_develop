@@ -27,6 +27,7 @@ page_t* kPhysToPage(QWORD qwPhysAddr);
 QWORD kPageToPhys(const page_t* poPage);
 page_t* kPfnToPage(QWORD qwPfn);
 
+void kUnreserveRange(QWORD qwBase, QWORD qwSize);
 QWORD kGetTotalPageCount(void);
 QWORD kGetFreePageCount(void);
 QWORD kGetReservedPageCount(void);

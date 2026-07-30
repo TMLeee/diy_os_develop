@@ -29,6 +29,10 @@
 
 // 커널 이미지의 링크 주소와 끝(elf_x86_64.x)
 #define KERNEL_PHYS_BASE		0x200000
+
+// 01.Kernel32/src/page.c가 만든 PML4/PDPT/PD 64장. CR3 전환 후 반납한다
+#define KERNEL32_PAGETABLE_BASE	0x100000
+#define KERNEL32_PAGETABLE_SIZE	0x42000
 extern char __text_end[];
 extern char __rodata_end[];
 extern char __kernel_end[];

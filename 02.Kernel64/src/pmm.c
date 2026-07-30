@@ -129,7 +129,7 @@ BOOL kInitializePhysicalMemory(void)
 
 	// USABLE 안에 들어 있는 커널 구조물을 되돌려 예약한다
 	kReserveRange(0, 0x100000, "BIOS/IVT/VGA/bootinfo");
-	kReserveRange(0x100000, 0x42000, "Kernel32 page tables");
+	kReserveRange(KERNEL32_PAGETABLE_BASE, KERNEL32_PAGETABLE_SIZE, "Kernel32 page tables");
 	kReserveRange(GDTR_START_ADDR, PAGE_SIZE, "GDT/TSS/IDT");
 	kReserveRange(KERNEL_PHYS_BASE,
 			(QWORD)__kernel_end - KERNEL_PHYS_BASE, "kernel image");
@@ -143,6 +143,31 @@ BOOL kInitializePhysicalMemory(void)
 	// 여기서부터는 물리 할당자만 메모리를 나눠 준다
 	kBootmemFreeze();
 	return TRUE;
+}
+
+
+// 예약을 풀고 할당 가능으로 되돌린다. 그 영역이 정말 죽었는지는 호출자 책임
+void kUnreserveRange(QWORD qwBase, QWORD qwSize)
+{
+	QWORD qwPfn = PFN_UP(qwBase);
+	QWORD qwEndPfn = PFN_DOWN(qwBase + qwSize);
+
+	if(qwEndPfn > g_qwTotalPages) {
+		qwEndPfn = g_qwTotalPages;
+	}
+
+	for(; qwPfn < qwEndPfn; ++qwPfn) {
+		if(0 == (g_poMemMap[qwPfn].qwFlags & PG_RESERVED)) {
+			continue;
+		}
+		g_poMemMap[qwPfn].qwFlags &= ~PG_RESERVED;
+		--g_qwReservedPages;
+
+		if(FALSE == kIsFrameFree(qwPfn)) {
+			kSetFrameFree(qwPfn);
+			++g_qwFreePages;
+		}
+	}
 }
 
 

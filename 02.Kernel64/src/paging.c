@@ -383,5 +383,9 @@ BOOL kInitializePaging(void)
 	qwCR0 = kReadCR0();
 	kWriteCR0(qwCR0 | CR0_WP);
 
+	// CR3가 새 테이블을 가리키므로 Kernel32가 만든 264KB는 이제 죽은 메모리다.
+	// 반드시 CR3 전환 뒤에 반납해야 한다
+	kUnreserveRange(KERNEL32_PAGETABLE_BASE, KERNEL32_PAGETABLE_SIZE);
+
 	return TRUE;
 }
