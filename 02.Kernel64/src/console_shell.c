@@ -487,8 +487,10 @@ void kCrash(const char* poParamBuff)
 		kPrintf("no fault: %d\n", iResult);
 	}
 	else if(0 == kMemCmp(vcType, "pf", 2)) {
+		// PAGE_OFFSET(PML4[256])은 direct map이라 이제 유효하다.
+		// 어느 매핑에도 속하지 않는 PML4[257] 대역을 쓴다
 		kPrintf("Raising #PF...\n");
-		*(volatile QWORD*)0xFFFF800000000000 = 0x1234;
+		*(volatile QWORD*)0xFFFF880000000000 = 0x1234;
 	}
 	else if(0 == kMemCmp(vcType, "gp", 2)) {
 		kPrintf("Raising #GP...\n");
@@ -551,10 +553,31 @@ void kPageProtTest(const char* poParamBuff)
 	volatile QWORD* pqwDirect;
 	char vcHex[17];
 
+	static const char* vpcSect[3] = {"text", "rodata", "data"};
+	QWORD vqProbe[3];
+	pte_t vqEntry[4];
+	int i;
+
 	kToHexString(kReadCR0(), vcHex, 16);
 	kPrintf("CR0=%s WP=%s NX=%s\n", vcHex,
 			(kReadCR0() & CR0_WP) ? "on" : "off",
 			(TRUE == kIsNXSupported()) ? "supported" : "no");
+
+	// 섹션 경계는 커널이 커지면 움직이므로 주소를 링커 심볼에서 가져온다
+	vqProbe[0] = KERNEL_PHYS_BASE;
+	vqProbe[1] = (QWORD)__text_end;
+	vqProbe[2] = (QWORD)__rodata_end;
+
+	for(i=0; i<3; ++i) {
+		if(PG_LEVEL_4K != kWalkPageTable(kReadCR3(), vqProbe[i], vqEntry)) {
+			kPrintf("%s: NOT 4KB\n", vpcSect[i]);
+			continue;
+		}
+		kToHexString(vqProbe[i], vcHex, 12);
+		kPrintf("%s at %s: %s%s\n", vpcSect[i], vcHex,
+				(vqEntry[3] & PTE_RW) ? "RW" : "RO",
+				(vqEntry[3] & PTE_NX) ? "+NX" : "+X");
+	}
 
 	qwFrame = kAllocPage();
 	if(0 == qwFrame) {
