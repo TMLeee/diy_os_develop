@@ -17,6 +17,7 @@
 #include "utility.h"
 #include "memmap.h"
 #include "pmm.h"
+#include "paging.h"
 
 
 void kPrintString(int x, int y, const char* str)
@@ -86,6 +87,18 @@ void main(void)
 		kSetCursor(37, iCursorY++);
 		kPrintf("Fail\n");
 		kPrintf("Fail to initialize physical memory.");
+		while(1);
+	}
+
+	kPrintf("Kernel Page Tables + Direct Map.....[    ]\n");
+	if(TRUE == kInitializePaging()) {
+		kSetCursor(37, iCursorY++);
+		kPrintf(" OK \n");
+	}
+	else {
+		kSetCursor(37, iCursorY++);
+		kPrintf("Fail\n");
+		kPrintf("Fail to initialize paging.");
 		while(1);
 	}
 

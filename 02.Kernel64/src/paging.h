@@ -48,6 +48,21 @@ typedef QWORD pte_t;
 #define PG_LEVEL_2M		2		// PD에서 PS=1
 #define PG_LEVEL_4K		3		// PT 엔트리
 
+// 리눅스식 direct map. 커널 이미지는 아직 0x200000에 그대로 두고
+// 물리 메모리 전체를 여기에 한 번 더 매핑한다. -mcmodel=small은 심볼을
+// 2GB 위에 못 두지만 계산된 64비트 포인터의 역참조는 문제없으므로
+// 빌드 플래그를 바꾸지 않고도 동작한다. higher-half는 스텝 24
+#define PAGE_OFFSET		0xFFFF800000000000UL	// PML4[256]
+#define KERNEL_VMA		0xFFFFFFFF80000000UL	// 스텝 24 예약
+
+#define __va(pa)		((void*)((QWORD)(pa) + PAGE_OFFSET))
+QWORD __pa(const void* pvVirtAddr);
+
+// IA32_EFER
+#define MSR_IA32_EFER	0xC0000080
+#define EFER_NXE		(1UL << 11)
+#define CR0_WP			(1UL << 16)
+
 
 // 지정한 CR3를 따라 va를 워크한다. 각 레벨의 엔트리 값을 vqEntry[0..3]에
 // (PML4, PDPT, PD, PT 순) 채우고 도달한 레벨을 반환한다
@@ -55,6 +70,16 @@ int kWalkPageTable(QWORD qwCR3, QWORD qwVirtAddr, pte_t* pvqEntry);
 QWORD kVirtToPhys(QWORD qwCR3, QWORD qwVirtAddr);
 void kDumpPageWalk(QWORD qwCR3, QWORD qwVirtAddr);
 const char* kGetPageLevelName(int iLevel);
+
+BOOL kInitializePaging(void);
+QWORD kGetKernelCR3(void);
+BOOL kIsNXSupported(void);
+
+// 4KB 단위 매핑. 중간 테이블이 없으면 프레임 할당자에서 만든다
+BOOL kMapPage(QWORD qwCR3, QWORD qwVirtAddr, QWORD qwPhysAddr, QWORD qwFlags);
+BOOL kMapRange(QWORD qwCR3, QWORD qwVirtAddr, QWORD qwPhysAddr,
+		QWORD qwSize, QWORD qwFlags);
+void kUnmapPage(QWORD qwCR3, QWORD qwVirtAddr);
 
 
 #endif /* 02_KERNEL64_SRC_PAGING_H_ */

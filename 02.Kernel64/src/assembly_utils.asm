@@ -10,6 +10,7 @@ global kSwitchContext
 global kReadCR0, kReadCR2, kReadCR3, kReadCR4
 global kWriteCR0, kWriteCR3, kWriteCR4
 global kInvlpg, kFlushTLB
+global kReadCPUID
 global kHlt
 global kReadMSR, kWriteMSR
 
@@ -127,6 +128,32 @@ kWriteCR3:
 
 kWriteCR4:
 	mov cr4, rdi
+	ret
+
+; void kReadCPUID(DWORD dwEAX, DWORD* pdwEAX, DWORD* pdwEBX,
+;                 DWORD* pdwECX, DWORD* pdwEDX)
+kReadCPUID:
+	push rbx
+	push r10
+	push r11
+
+	; cpuid는 rbx/rcx/rdx를 덮으므로 출력 포인터를 먼저 옮겨 둔다
+	mov r10, rdx			; pdwEBX
+	mov r11, rcx			; pdwECX
+	mov r9, r8				; pdwEDX (r8은 cpuid가 건드리지 않지만 통일)
+	mov rax, rdi			; 요청 leaf
+	mov rdi, rsi			; pdwEAX
+
+	cpuid
+
+	mov dword [ rdi ], eax
+	mov dword [ r10 ], ebx
+	mov dword [ r11 ], ecx
+	mov dword [ r9 ], edx
+
+	pop r11
+	pop r10
+	pop rbx
 	ret
 
 ; void kInvlpg(QWORD qwVirtAddr)

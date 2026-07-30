@@ -9,6 +9,39 @@
 #include "console.h"
 #include "utility.h"
 #include "assembly_utils.h"
+#include "pmm.h"
+#include "memmap.h"
+
+
+static QWORD g_qwKernelCR3 = 0;
+static BOOL g_bNXSupported = FALSE;
+
+
+QWORD kGetKernelCR3(void)
+{
+	return g_qwKernelCR3;
+}
+
+
+BOOL kIsNXSupported(void)
+{
+	return g_bNXSupported;
+}
+
+
+// direct map 영역이면 오프셋을 빼고, identity 영역이면 그대로 반환한다
+QWORD __pa(const void* pvVirtAddr)
+{
+	QWORD qwVirtAddr = (QWORD)pvVirtAddr;
+
+	if(qwVirtAddr >= KERNEL_VMA) {
+		return qwVirtAddr - KERNEL_VMA + KERNEL_PHYS_BASE;
+	}
+	if(qwVirtAddr >= PAGE_OFFSET) {
+		return qwVirtAddr - PAGE_OFFSET;
+	}
+	return qwVirtAddr;
+}
 
 
 const char* kGetPageLevelName(int iLevel)
@@ -143,4 +176,166 @@ void kDumpPageWalk(QWORD qwCR3, QWORD qwVirtAddr)
 		kToHexString(qwPhys, vcHex, 12);
 		kPrintf(" -> PA %s (%s page)\n", vcHex, kGetPageLevelName(iLevel));
 	}
+}
+
+
+// 중간 테이블을 따라가며 필요하면 새로 만든다. 반환값은 다음 레벨 테이블의
+// 가상주소(현재는 identity라 물리주소와 같다)
+static pte_t* kGetNextLevel(pte_t* poTable, QWORD qwIndex, BOOL bAlloc)
+{
+	QWORD qwFrame;
+
+	if(0 == (poTable[qwIndex] & PTE_P)) {
+		if(FALSE == bAlloc) {
+			return NULL;
+		}
+		qwFrame = kAllocPage();
+		if(0 == qwFrame) {
+			return NULL;
+		}
+		kMemSet((void*)qwFrame, 0, PAGE_SIZE);
+		poTable[qwIndex] = qwFrame | PTE_P | PTE_RW;
+	}
+	else if(poTable[qwIndex] & PTE_PS) {
+		// 이미 2MB/1GB 페이지로 잡혀 있으면 여기서는 쪼개지 않는다
+		return NULL;
+	}
+
+	return (pte_t*)PTE_ADDR(poTable[qwIndex]);
+}
+
+
+BOOL kMapPage(QWORD qwCR3, QWORD qwVirtAddr, QWORD qwPhysAddr, QWORD qwFlags)
+{
+	pte_t* poTable = (pte_t*)PTE_ADDR(qwCR3);
+
+	poTable = kGetNextLevel(poTable, PML4_INDEX(qwVirtAddr), TRUE);
+	if(NULL == poTable) return FALSE;
+	poTable = kGetNextLevel(poTable, PDPT_INDEX(qwVirtAddr), TRUE);
+	if(NULL == poTable) return FALSE;
+	poTable = kGetNextLevel(poTable, PD_INDEX(qwVirtAddr), TRUE);
+	if(NULL == poTable) return FALSE;
+
+	if(FALSE == g_bNXSupported) {
+		qwFlags &= ~PTE_NX;
+	}
+	poTable[PT_INDEX(qwVirtAddr)] = PTE_ADDR(qwPhysAddr) | qwFlags | PTE_P;
+	return TRUE;
+}
+
+
+BOOL kMapRange(QWORD qwCR3, QWORD qwVirtAddr, QWORD qwPhysAddr,
+		QWORD qwSize, QWORD qwFlags)
+{
+	QWORD qwOffset;
+
+	qwSize = PAGE_ALIGN_UP(qwSize);
+	for(qwOffset=0; qwOffset<qwSize; qwOffset+=PAGE_SIZE) {
+		if(FALSE == kMapPage(qwCR3, qwVirtAddr + qwOffset,
+					qwPhysAddr + qwOffset, qwFlags)) {
+			return FALSE;
+		}
+	}
+	return TRUE;
+}
+
+
+void kUnmapPage(QWORD qwCR3, QWORD qwVirtAddr)
+{
+	pte_t* poTable = (pte_t*)PTE_ADDR(qwCR3);
+
+	poTable = kGetNextLevel(poTable, PML4_INDEX(qwVirtAddr), FALSE);
+	if(NULL == poTable) return;
+	poTable = kGetNextLevel(poTable, PDPT_INDEX(qwVirtAddr), FALSE);
+	if(NULL == poTable) return;
+	poTable = kGetNextLevel(poTable, PD_INDEX(qwVirtAddr), FALSE);
+	if(NULL == poTable) return;
+
+	poTable[PT_INDEX(qwVirtAddr)] = 0;
+	kInvlpg(qwVirtAddr);
+}
+
+
+// 2MB 페이지로 [qwVirtAddr, +qwSize)를 매핑한다. 중간 테이블만 4KB 프레임을
+// 쓰고 리프는 PS=1이므로 64MB를 매핑해도 테이블이 몇 장 안 든다
+static BOOL kMapRange2M(QWORD qwCR3, QWORD qwVirtAddr, QWORD qwPhysAddr,
+		QWORD qwSize, QWORD qwFlags)
+{
+	pte_t* poTable;
+	pte_t* poPD;
+	QWORD qwOffset;
+
+	qwSize = ALIGN_UP(qwSize, PAGE_SIZE_2M);
+	for(qwOffset=0; qwOffset<qwSize; qwOffset+=PAGE_SIZE_2M) {
+		poTable = (pte_t*)PTE_ADDR(qwCR3);
+		poTable = kGetNextLevel(poTable, PML4_INDEX(qwVirtAddr + qwOffset), TRUE);
+		if(NULL == poTable) return FALSE;
+		poPD = kGetNextLevel(poTable, PDPT_INDEX(qwVirtAddr + qwOffset), TRUE);
+		if(NULL == poPD) return FALSE;
+
+		poPD[PD_INDEX(qwVirtAddr + qwOffset)] =
+				PTE_ADDR(qwPhysAddr + qwOffset) | qwFlags | PTE_P | PTE_PS;
+	}
+	return TRUE;
+}
+
+
+BOOL kInitializePaging(void)
+{
+	QWORD qwPML4, qwHighest, qwNXFlag;
+	DWORD dwEAX, dwEBX, dwECX, dwEDX;
+	QWORD qwEFER, qwCR0;
+
+	// NX 지원 확인. 지원하지 않는데 PTE_NX를 세우면 예약 비트 위반으로
+	// 모든 매핑이 #PF가 된다
+	kReadCPUID(0x80000001, &dwEAX, &dwEBX, &dwECX, &dwEDX);
+	g_bNXSupported = (dwEDX & (1 << 20)) ? TRUE : FALSE;
+
+	if(TRUE == g_bNXSupported) {
+		kReadMSR(MSR_IA32_EFER, &qwEFER);
+		kWriteMSR(MSR_IA32_EFER, qwEFER | EFER_NXE);
+	}
+	qwNXFlag = (TRUE == g_bNXSupported) ? PTE_NX : 0;
+
+	qwHighest = kGetHighestUsableAddr();
+	if(0 == qwHighest) {
+		return FALSE;
+	}
+
+	qwPML4 = kAllocPage();
+	if(0 == qwPML4) {
+		return FALSE;
+	}
+	kMemSet((void*)qwPML4, 0, PAGE_SIZE);
+
+	// 1) RAM 전체를 identity 매핑한다. 0xB8000, 0x700000 IST, 0x800000 TCB 풀 등
+	//    하드코딩된 물리주소가 전부 그대로 동작해야 하므로 반드시 전 범위
+	if(FALSE == kMapRange2M(qwPML4, 0, 0, qwHighest,
+				PTE_RW | PTE_G | qwNXFlag)) {
+		return FALSE;
+	}
+
+	// 2) 같은 물리 메모리를 PAGE_OFFSET에 한 번 더(direct map)
+	if(FALSE == kMapRange2M(qwPML4, PAGE_OFFSET, 0, qwHighest,
+				PTE_RW | PTE_G | qwNXFlag)) {
+		return FALSE;
+	}
+
+	// 3) 커널 코드는 identity 쪽에서 실행되므로 그 2MB만 실행 허용으로 되돌린다
+	//    (섹션별 4KB 분할과 W^X는 스텝 16)
+	if(FALSE == kMapRange2M(qwPML4, KERNEL_PHYS_BASE, KERNEL_PHYS_BASE,
+				PAGE_SIZE_2M, PTE_RW | PTE_G)) {
+		return FALSE;
+	}
+	// 커널 스택/IST가 있는 6MB~8MB도 실행 가능한 채로 두면 안 되지만
+	// 지금은 NX만 유지하고 권한 분리는 스텝 16에서 한다
+
+	g_qwKernelCR3 = qwPML4;
+	kWriteCR3(qwPML4);
+
+	// CR0.WP: 커널도 RO 페이지에 쓰지 못하게 한다. COW의 전제조건
+	qwCR0 = kReadCR0();
+	kWriteCR0(qwCR0 | CR0_WP);
+
+	return TRUE;
 }

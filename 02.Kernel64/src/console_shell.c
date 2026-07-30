@@ -35,7 +35,8 @@ ShellCmdEntry_t gtCommandTable[] =
 		{"memmap", "Show E820 Physical Memory Map", kShowMemoryMap},
 		{"pmemstat", "Show Physical Frame Allocator Stat", kShowPhysMemStat},
 		{"alloctest", "Alloc/Free Frames, ex)alloctest 100 0(order)", kAllocTest},
-		{"pgwalk", "Walk Page Tables, ex)pgwalk 202000", kPageWalkTest}
+		{"pgwalk", "Walk Page Tables, ex)pgwalk 202000", kPageWalkTest},
+		{"pgtest", "Test Direct Map And Page Protection", kPageProtTest}
 };
 
 
@@ -526,6 +527,56 @@ void kPageWalkTest(const char* poParamBuff)
 
 	qwVirtAddr = (QWORD)kAToI(vcParam, 16);
 	kDumpPageWalk(kReadCR3(), qwVirtAddr);
+}
+
+
+// direct map이 워크만 되는 게 아니라 실제로 접근 가능한지 확인한다
+void kPageProtTest(const char* poParamBuff)
+{
+	QWORD qwFrame;
+	volatile QWORD* pqwIdent;
+	volatile QWORD* pqwDirect;
+	char vcHex[17];
+
+	kToHexString(kReadCR0(), vcHex, 16);
+	kPrintf("CR0=%s WP=%s NX=%s\n", vcHex,
+			(kReadCR0() & CR0_WP) ? "on" : "off",
+			(TRUE == kIsNXSupported()) ? "supported" : "no");
+
+	qwFrame = kAllocPage();
+	if(0 == qwFrame) {
+		kPrintf("alloc failed\n");
+		return;
+	}
+
+	pqwIdent = (volatile QWORD*)qwFrame;
+	pqwDirect = (volatile QWORD*)__va(qwFrame);
+
+	// identity로 쓰고 direct map으로 읽는다. 같은 프레임이어야 한다
+	*pqwIdent = 0xFEEDFACECAFEBEEF;
+	kToHexString(qwFrame, vcHex, 12);
+	kPrintf("frame %s: ", vcHex);
+
+	if(0xFEEDFACECAFEBEEF == *pqwDirect) {
+		kPrintf("ident->direct OK  ");
+	}
+	else {
+		kPrintf("ident->direct MISMATCH  ");
+	}
+
+	// 반대 방향도 확인
+	*pqwDirect = 0x0123456789ABCDEF;
+	if(0x0123456789ABCDEF == *pqwIdent) {
+		kPrintf("direct->ident OK\n");
+	}
+	else {
+		kPrintf("direct->ident MISMATCH\n");
+	}
+
+	kToHexString((QWORD)pqwDirect, vcHex, 16);
+	kPrintf("direct map VA = %s\n", vcHex);
+
+	kFreePage(qwFrame);
 }
 
 
