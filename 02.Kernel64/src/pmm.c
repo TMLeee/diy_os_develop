@@ -258,6 +258,9 @@ void kFreePages(QWORD qwPhysAddr, int iOrder)
 	}
 
 	for(i=0; i<qwCount; ++i) {
+		// PG_SLAB을 남겨 두면 이 프레임을 나중에 kmalloc이 큰 블록으로 받았을 때
+		// kfree가 slab으로 오판한다
+		g_poMemMap[qwPfn + i].qwFlags &= ~(PG_SLAB | PG_BUDDY);
 		g_poMemMap[qwPfn + i].iRefCount = 0;
 		g_poMemMap[qwPfn + i].pvPrivate = NULL;
 		kSetFrameFree(qwPfn + i);

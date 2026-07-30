@@ -17,6 +17,7 @@
 #include "pmm.h"
 #include "paging.h"
 #include "mm.h"
+#include "slab.h"
 
 
 ShellCmdEntry_t gtCommandTable[] =
@@ -37,7 +38,9 @@ ShellCmdEntry_t gtCommandTable[] =
 		{"pmemstat", "Show Physical Frame Allocator Stat", kShowPhysMemStat},
 		{"alloctest", "Alloc/Free Frames, ex)alloctest 100 0(order)", kAllocTest},
 		{"pgwalk", "Walk Page Tables, ex)pgwalk 202000", kPageWalkTest},
-		{"pgtest", "Test Direct Map And Page Protection", kPageProtTest}
+		{"pgtest", "Test Direct Map And Page Protection", kPageProtTest},
+		{"slabinfo", "Show Slab Cache Stat", kShowSlabInfo},
+		{"kmalloctest", "kmalloc/kfree Stress, ex)kmalloctest 200", kKmallocTest}
 };
 
 
@@ -645,4 +648,66 @@ void kAllocTest(const char* poParamBuff)
 	kUIToDecString(qwAfter, vcHex);
 	kPrintf("free before=%s after=%s %s\n", vcNum, vcHex,
 			(qwBefore == qwAfter) ? "OK" : "LEAK");
+}
+
+
+void kShowSlabInfo(const char* poParamBuff)
+{
+	kPrintSlabInfo();
+}
+
+
+// 여러 크기를 섞어 할당/검증/해제하고 프레임 수가 복귀하는지 본다
+void kKmallocTest(const char* poParamBuff)
+{
+	static const QWORD vqSize[8] = {8, 24, 64, 200, 500, 1000, 3000, 20000};
+	ParamList_t stList;
+	char vcParam[30], vcNum[24], vcNum2[24];
+	void* vpvPtr[64];
+	QWORD vqUsed[64];
+	int iCount, i, j, iGot;
+	QWORD qwBefore, qwAfter;
+	BOOL bOk = TRUE;
+
+	kInitializeParam(&stList, poParamBuff);
+	iCount = (0 == kGetNextParam(&stList, vcParam)) ? 32 : kAToI(vcParam, 10);
+	if((iCount <= 0) || (64 < iCount)) {
+		iCount = 32;
+	}
+
+	qwBefore = kGetFreePageCount();
+
+	for(iGot=0; iGot<iCount; ++iGot) {
+		vqUsed[iGot] = vqSize[iGot % 8];
+		vpvPtr[iGot] = kmalloc(vqUsed[iGot]);
+		if(NULL == vpvPtr[iGot]) {
+			break;
+		}
+		// 요청한 크기 전체가 쓰기 가능한지 확인하며 패턴을 채운다
+		kMemSet(vpvPtr[iGot], (BYTE)(0x30 + (iGot & 0x0F)), (int)vqUsed[iGot]);
+	}
+
+	// 겹쳐 쓰지 않았는지 확인
+	for(i=0; i<iGot; ++i) {
+		for(j=0; j<(int)vqUsed[i]; ++j) {
+			if(((BYTE*)vpvPtr[i])[j] != (BYTE)(0x30 + (i & 0x0F))) {
+				kPrintf("OVERLAP at block %d offset %d\n", i, j);
+				bOk = FALSE;
+				break;
+			}
+		}
+		if(FALSE == bOk) {
+			break;
+		}
+	}
+
+	for(i=0; i<iGot; ++i) {
+		kfree(vpvPtr[i]);
+	}
+
+	qwAfter = kGetFreePageCount();
+	kUIToDecString(qwBefore, vcNum);
+	kUIToDecString(qwAfter, vcNum2);
+	kPrintf("kmalloc %d blocks, pattern %s, frames %s -> %s\n",
+			iGot, (TRUE == bOk) ? "OK" : "BAD", vcNum, vcNum2);
 }
