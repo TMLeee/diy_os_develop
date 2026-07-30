@@ -16,3 +16,8 @@ CLAUDE.local.md
 
 # ---- Editor local state ----
 .vscode/settings.local.json
+
+# ---- Test harness scratch output (tools/) ----
+tools/*.log
+tools/*.bin
+tools/qemu.stdout

@@ -1,0 +1,134 @@
+#!/bin/bash
+# verify_all.sh - full acceptance run over everything built in steps 1-18.
+# Slower than regress.sh (many boots); run at stage boundaries.
+
+set -u
+export PATH="/usr/bin:/bin:$PATH"
+tounix() { cygpath -u "$1" 2>/dev/null || echo "$1"; }
+ROOT="$(tounix 'C:/workspace/10.OS')"
+WORK="$(cd "$(dirname "$0")" && pwd)"
+export PATH="$(tounix 'C:/cygwin64/bin'):$(tounix 'C:/cygwin64/usr/cross/bin'):$PATH"
+
+pass=0; fail=0
+ok()   { printf '  [PASS] %s\n' "$1"; pass=$((pass+1)); }
+bad()  { printf '  [FAIL] %s\n' "$1"; fail=$((fail+1)); }
+sect() { printf '\n--- %s\n' "$1"; }
+
+# want <label> <regex> <screen-text>
+want() { if echo "$3" | grep -qE "$2"; then ok "$1"; else bad "$1 (no /$2/)"; fi; }
+deny() { if echo "$3" | grep -qE "$2"; then bad "$1 (unexpected /$2/)"; else ok "$1"; fi; }
+# literal variants - milestone names contain '+', which grep -E treats as a quantifier
+wantF() { if echo "$3" | grep -qF "$2"; then ok "$1"; else bad "$1 (no '$2')"; fi; }
+denyF() { if echo "$3" | grep -qF "$2"; then bad "$1 (unexpected '$2')"; else ok "$1"; fi; }
+
+echo "=============== 10.OS full verification ==============="
+
+sect "build"
+cd "$ROOT" || exit 1
+if make >"$WORK/v_build.log" 2>&1; then
+    w=$(grep -c 'warning:' "$WORK/v_build.log" || true)
+    sz=$(stat -c%s 02.Kernel64/Kernel64.bin)
+    sec=$(grep -o 'boot loader \[[0-9]*\]' "$WORK/v_build.log" | grep -o '[0-9]*' | head -1)
+    [ "${w:-0}" -le 1 ] && ok "build, warnings=${w:-0} (<=1 expected)" \
+                        || bad "build warnings=${w:-0}"
+    ok "Kernel64.bin=${sz}B image=${sec:-?}/1920 sectors"
+else
+    bad "build"; tail -20 "$WORK/v_build.log"; exit 1
+fi
+
+sect "boot integrity (no keystrokes)"
+b=$("$WORK/bootcheck.sh" 2>&1)
+for m in 'C Language Kernel Start' 'IA-32e Page Table Initialization' \
+         'IA-32e Mode Kernel Start' 'Initializing GDT' 'Initializing IDT' \
+         'Reading E820 Memory Map' 'Physical Frame Allocator' \
+         'Kernel Page Tables + Direct Map' 'Slab Allocator + kmalloc' \
+         'Initializing PIC Controller'; do
+    wantF "init: $m" "$m" "$b"
+done
+denyF "no init step reported Fail" 'Fail' "$b"
+deny "no exception during boot"   'Exception Occurred|KERNEL PANIC' "$b"
+want "shell prompt"               'TM_OS1>' "$b"
+
+sect "legacy features still work"
+s=$(CMD_WAIT=3 "$WORK/bootcheck.sh" 'totalram' 'createtask 2 4' 'date' 'wait 50' 'rdtsc' 2>&1)
+want "totalram"        'Total RAM Size' "$s"
+want "createtask"      'Created' "$s"
+want "date (RTC)"      'Data:.*Time:' "$s"
+want "wait (PIT)"      '50\[ms\] Sleep Complete' "$s"
+want "rdtsc"           'Time Stamp Counter' "$s"
+
+sect "E820 memory map"
+s=$(CMD_WAIT=3 "$WORK/bootcheck.sh" 'memmap' 2>&1)
+want "usable region below 1MB"   '000000000000  00000009FC00  USABLE' "$s"
+want "main usable region"        '000000100000  .*  USABLE' "$s"
+want "EBDA reserved"             '00000009FC00  0000000A0000  RESERVED' "$s"
+want "entry count + total"       'entries=[0-9]+ usable=[0-9]+MB' "$s"
+
+sect "physical frame allocator"
+s=$(CMD_WAIT=4 "$WORK/bootcheck.sh" 'pmemstat' 'alloctest 64 0' 'alloctest 8 10' 'pmemstat' 2>&1)
+want "pmemstat reports frames"  'frames total=[0-9]+ free=[0-9]+ reserved=[0-9]+' "$s"
+want "order-0 alloc"            'allocated 64 \(order 0\)' "$s"
+want "order-10 alloc (4MB)"     'allocated 8 \(order 10\) first=[0-9A-F]*[04]00000' "$s"
+deny "no misaligned block"      'MISALIGNED' "$s"
+deny "no corrupted pattern"     'PATTERN CORRUPT' "$s"
+deny "no frame leak"            'LEAK' "$s"
+want "reclaimed Kernel32 tables" 'first=000000100000' "$s"
+
+sect "paging: 4KB split, W^X flags, direct map"
+s=$(CMD_WAIT=3 "$WORK/bootcheck.sh" 'cls' 'pgtest' 'pgwalk 202000' 2>&1)
+# pgtest locates the sections from the linker symbols, so this does not go
+# stale when the kernel grows and the boundaries move
+want ".text  RO+X"                  'text at [0-9A-F]+: RO\+X' "$s"
+want ".rodata RO+NX"                'rodata at [0-9A-F]+: RO\+NX' "$s"
+want ".data  RW+NX"                 'data at [0-9A-F]+: RW\+NX' "$s"
+deny "no section left as 2MB page"  'NOT 4KB' "$s"
+want "4KB pages over kernel image"  '4KB page' "$s"
+want "CR0.WP on"                    'WP=on' "$s"
+want "NX supported"                 'NX=supported' "$s"
+want "direct map ident->direct"     'ident->direct OK' "$s"
+want "direct map direct->ident"     'direct->ident OK' "$s"
+want "direct map VA"                'direct map VA = FFFF8000' "$s"
+
+sect "slab + kmalloc"
+s=$(CMD_WAIT=4 "$WORK/bootcheck.sh" 'kmalloctest 64' 'slabinfo' 'kmalloctest 64' 2>&1)
+want "kmalloc pattern intact"  'pattern OK' "$s"
+deny "no overlapping blocks"   'OVERLAP' "$s"
+want "12 kmalloc caches"       'kmalloc-16384' "$s"
+# ERE has no backreferences; compare the two counts in shell instead
+r1=$(echo "$s" | grep -oE 'frames [0-9]+ -> [0-9]+' | sed -n '2p')
+if [ -n "$r1" ] && [ "$(echo "$r1" | awk '{print $2}')" = "$(echo "$r1" | awk '{print $4}')" ]; then
+    ok "slab reuse (2nd run consumes no frames: $r1)"
+else
+    bad "slab reuse (2nd run: ${r1:-missing})"
+fi
+
+sect "exception paths"
+for t in div0:'Vector : 0 ' ud:'Vector : 6 ' gp:'Vector : 13' pf:'Vector : 14' \
+         wtext:'err=0x0003|ErrCode: 0x0000000000000003' \
+         xdata:'err=0x0011|ErrCode: 0x0000000000000011'; do
+    cmd="${t%%:*}"; pat="${t#*:}"
+    SERIAL="$WORK/v_$cmd.log" CMD_WAIT=4 "$WORK/bootcheck.sh" "crash $cmd" >/dev/null 2>&1
+    l=$(cat "$WORK/v_$cmd.log" 2>/dev/null)
+    want "crash $cmd" "$pat" "$l"
+    want "crash $cmd halts cleanly" 'System Halted' "$l"
+done
+
+sect "scales across RAM sizes"
+for m in 32 64 256 1024; do
+    s=$(MEM=$m CMD_WAIT=3 "$WORK/bootcheck.sh" 'pmemstat' 2>&1)
+    if [ "$m" = "32" ]; then
+        want "-m 32 correctly rejected" 'Minimum Memory Size.*Fail' "$s"
+    else
+        want "-m $m boots + allocator up" 'frames total=[0-9]+' "$s"
+    fi
+done
+
+sect "preemption soak on the new tables (20 tasks, 1ms, 40s)"
+s=$(CMD_WAIT=3 END_WAIT=40 HARD_TIMEOUT=140 "$WORK/bootcheck.sh" \
+        'settimer 1 1' 'createtask 2 20' 2>&1)
+want "20 tasks created"      'Task2 20 Created' "$s"
+deny "no exception in soak"  'Exception Occurred|KERNEL PANIC' "$s"
+
+echo
+echo "=============== $pass passed, $fail failed ==============="
+exit $([ "$fail" -eq 0 ] && echo 0 || echo 1)
