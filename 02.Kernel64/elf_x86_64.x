@@ -17,11 +17,16 @@ SECTIONS
     *(.gnu.warning)
   } =0x90909090
 
+  /* 섹션 경계를 4KB로 맞춰야 페이지 단위로 권한을 나눌 수 있다.
+     .text=RO+X, .rodata=RO+NX, .data/.bss=RW+NX */
+  . = ALIGN(0x1000);
+  __text_end = .;
+
   .rodata         : { *(.rodata .rodata.* .gnu.linkonce.r.*) }
   .rodata1        : { *(.rodata1) }
 
-  /* ������ ������ ������ ���� ������ ���� */
-  . = ALIGN (512);
+  . = ALIGN(0x1000);
+  __rodata_end = .;
 
   .data           :
   {

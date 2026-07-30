@@ -29,6 +29,8 @@
 
 // 커널 이미지의 링크 주소와 끝(elf_x86_64.x)
 #define KERNEL_PHYS_BASE		0x200000
+extern char __text_end[];
+extern char __rodata_end[];
 extern char __kernel_end[];
 
 // page_t.qwFlags

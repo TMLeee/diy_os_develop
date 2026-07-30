@@ -16,6 +16,7 @@
 #include "memmap.h"
 #include "pmm.h"
 #include "paging.h"
+#include "mm.h"
 
 
 ShellCmdEntry_t gtCommandTable[] =
@@ -31,7 +32,7 @@ ShellCmdEntry_t gtCommandTable[] =
 		{"cpuspeed", "Measure Processor Speed", kMeasureProcessorSpeed},
 		{"date", "Show Data and Time", kShowDateAndTime},
 		{"createtask", "Create Task, ex)createtask 1(type) 10(count)", kCreateTestTask},
-		{"crash", "Raise an exception, ex)crash div0|pf|gp|ud", kCrash},
+		{"crash", "Raise an exception, ex)crash div0|pf|gp|ud|wtext|xdata", kCrash},
 		{"memmap", "Show E820 Physical Memory Map", kShowMemoryMap},
 		{"pmemstat", "Show Physical Frame Allocator Stat", kShowPhysMemStat},
 		{"alloctest", "Alloc/Free Frames, ex)alloctest 100 0(order)", kAllocTest},
@@ -494,6 +495,15 @@ void kCrash(const char* poParamBuff)
 	else if(0 == kMemCmp(vcType, "ud", 2)) {
 		kPrintf("Raising #UD...\n");
 		__asm__ __volatile__ ("ud2");
+	}
+	// W^X 확인용. .text 쓰기와 .data 실행은 각각 #PF여야 한다
+	else if(0 == kMemCmp(vcType, "wtext", 5)) {
+		kPrintf("Writing to .text (RO)...\n");
+		*(volatile BYTE*)KERNEL_PHYS_BASE = 0x90;
+	}
+	else if(0 == kMemCmp(vcType, "xdata", 5)) {
+		kPrintf("Executing in .data (NX)...\n");
+		((void (*)(void))(QWORD)__rodata_end)();
 	}
 	else {
 		kPrintf("ex) crash div0|pf|gp|ud\n");

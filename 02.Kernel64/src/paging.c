@@ -280,6 +280,56 @@ static BOOL kMapRange2M(QWORD qwCR3, QWORD qwVirtAddr, QWORD qwPhysAddr,
 }
 
 
+// 커널 이미지를 덮고 있는 2MB PDE를 512엔트리 PT로 교체하고 섹션별 권한을 준다.
+// PDE를 제자리에서 쪼갤 수는 없으므로 PT를 먼저 완성한 뒤 PDE를 한 번에 바꾼다
+static BOOL kProtectKernelImage(QWORD qwCR3, QWORD qwNXFlag)
+{
+	QWORD qwPTFrame, qwBase, qwAddr, qwFlags;
+	pte_t* poPT;
+	pte_t* poTable;
+	pte_t* poPD;
+	int i;
+
+	// 커널 이미지가 2MB 하나를 넘어가면 이 로직으로는 부족하다
+	if((QWORD)__kernel_end > (KERNEL_PHYS_BASE + PAGE_SIZE_2M)) {
+		return FALSE;
+	}
+
+	qwPTFrame = kAllocPage();
+	if(0 == qwPTFrame) {
+		return FALSE;
+	}
+	poPT = (pte_t*)qwPTFrame;
+	qwBase = KERNEL_PHYS_BASE;
+
+	for(i=0; i<PAGE_ENTRY_COUNT; ++i) {
+		qwAddr = qwBase + ((QWORD)i * PAGE_SIZE);
+
+		if(qwAddr < (QWORD)__text_end) {
+			qwFlags = PTE_G;								// .text  RO + X
+		}
+		else if(qwAddr < (QWORD)__rodata_end) {
+			qwFlags = PTE_G | qwNXFlag;						// .rodata RO + NX
+		}
+		else {
+			qwFlags = PTE_RW | PTE_G | qwNXFlag;			// .data/.bss/여백 RW + NX
+		}
+
+		poPT[i] = PTE_ADDR(qwAddr) | qwFlags | PTE_P;
+	}
+
+	// 완성된 PT로 PDE를 교체
+	poTable = (pte_t*)PTE_ADDR(qwCR3);
+	poTable = kGetNextLevel(poTable, PML4_INDEX(qwBase), TRUE);
+	if(NULL == poTable) return FALSE;
+	poPD = kGetNextLevel(poTable, PDPT_INDEX(qwBase), TRUE);
+	if(NULL == poPD) return FALSE;
+
+	poPD[PD_INDEX(qwBase)] = PTE_ADDR(qwPTFrame) | PTE_P | PTE_RW;
+	return TRUE;
+}
+
+
 BOOL kInitializePaging(void)
 {
 	QWORD qwPML4, qwHighest, qwNXFlag;
@@ -321,14 +371,10 @@ BOOL kInitializePaging(void)
 		return FALSE;
 	}
 
-	// 3) 커널 코드는 identity 쪽에서 실행되므로 그 2MB만 실행 허용으로 되돌린다
-	//    (섹션별 4KB 분할과 W^X는 스텝 16)
-	if(FALSE == kMapRange2M(qwPML4, KERNEL_PHYS_BASE, KERNEL_PHYS_BASE,
-				PAGE_SIZE_2M, PTE_RW | PTE_G)) {
+	// 3) 커널 이미지가 든 2MB를 4KB로 쪼개고 섹션별 권한을 적용한다
+	if(FALSE == kProtectKernelImage(qwPML4, qwNXFlag)) {
 		return FALSE;
 	}
-	// 커널 스택/IST가 있는 6MB~8MB도 실행 가능한 채로 두면 안 되지만
-	// 지금은 NX만 유지하고 권한 분리는 스텝 16에서 한다
 
 	g_qwKernelCR3 = qwPML4;
 	kWriteCR3(qwPML4);
