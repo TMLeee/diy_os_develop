@@ -24,21 +24,39 @@ void kInitPageTbl(void)
 
 	// Page Directory Pointer Table 생성
 	poPDPTEnt = (PDPTEnt_t*)0x101000;
-	for(i=0; i<64; ++i) {
-		kSetPageEntry( &(poPDPTEnt[i]), 0, 0x102000 + (i * PAGE_TBL_SIZE), PAGE_FLAGS_DEF, 0);
+	for(i=0; i<PAGE_IDENT_PD_CNT; ++i) {
+		kSetPageEntry( &(poPDPTEnt[i]), 0, PAGE_IDENT_PD_BASE + (i * PAGE_TBL_SIZE),
+				PAGE_FLAGS_DEF, 0);
 	}
-	for(i=64; i<PAGE_MAX_ENT_COUNT; ++i) {
+	for(i=PAGE_IDENT_PD_CNT; i<PAGE_MAX_ENT_COUNT; ++i) {
 		kSetPageEntry( &(poPDPTEnt[i]), 0, 0, 0, 0);
 	}
 
 	// Page Directory Table 생성
-	poPDEnt = (PDEnt_t*)0x102000;
+	poPDEnt = (PDEnt_t*)PAGE_IDENT_PD_BASE;
 	dwMapAddr = 0;
-	for(i=0; i<PAGE_MAX_ENT_COUNT * 64; ++i) {
+	for(i=0; i<PAGE_MAX_ENT_COUNT * PAGE_IDENT_PD_CNT; ++i) {
 		kSetPageEntry( &(poPDEnt[i]), (i * (PAGE_DEF_SIZE >> 20)) >> 12,
 				dwMapAddr, PAGE_FLAGS_DEF | PAGE_FLAGS_PS, 0);
 		dwMapAddr += PAGE_DEF_SIZE;
 	}
+
+	// higher-half 창: 0xFFFFFFFF80200000 -> 물리 0x200000
+	//   PML4[511] -> PDPT[510] -> PD[1] (2MB 페이지)
+	// Kernel64가 자기 테이블로 바꾸기 전까지 고주소에서 실행하기 위한 최소 매핑
+	poPDPTEnt = (PDPTEnt_t*)PAGE_HIGH_PDPT;
+	for(i=0; i<PAGE_MAX_ENT_COUNT; ++i) {
+		kSetPageEntry( &(poPDPTEnt[i]), 0, 0, 0, 0);
+	}
+	kSetPageEntry( &(poPDPTEnt[510]), 0, PAGE_HIGH_PD, PAGE_FLAGS_DEF, 0);
+
+	poPDEnt = (PDEnt_t*)PAGE_HIGH_PD;
+	for(i=0; i<PAGE_MAX_ENT_COUNT; ++i) {
+		kSetPageEntry( &(poPDEnt[i]), 0, 0, 0, 0);
+	}
+	kSetPageEntry( &(poPDEnt[1]), 0, 0x200000, PAGE_FLAGS_DEF | PAGE_FLAGS_PS, 0);
+
+	kSetPageEntry( &(poPWL4Ent[511]), 0, PAGE_HIGH_PDPT, PAGE_FLAGS_DEF, 0);
 }
 
 
