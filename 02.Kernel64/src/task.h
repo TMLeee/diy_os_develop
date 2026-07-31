@@ -42,12 +42,8 @@
 #define TASK_RSP_OFFSET			22
 #define TASK_SS_OFFSET			23
 
-// Task pool addr
-#define TASK_TCB_POLL_ADDR		0x800000
+// 풀 크기. 주소는 더 이상 고정이 아니다 - 부팅 때 프레임 할당자에서 받는다
 #define TASK_MAX_CNT			1024
-
-// Stack pool addr, size
-#define TASK_STACK_POOL_ADDR	(TASK_TCB_POLL_ADDR + sizeof(TCB_t) * TASK_MAX_CNT)
 #define TASK_STACK_SIZE			8192
 
 // Invalid task id
@@ -87,6 +83,7 @@ typedef struct kTaskControlBlockStruct{
 typedef struct kTCBPoolManagerStruct {
 	// Infomation of tack pools
 	TCB_t *poStartAddr;
+	QWORD qwStackPoolAddr;		// 스택 풀 베이스. 예전에는 매크로 상수였다
 	int iMaxCnt;
 	int iUseCnt;
 
@@ -107,7 +104,7 @@ typedef struct kSchedulerStruct {
 #pragma pack (pop)
 
 // Task pool functions
-void kInitializeTCBPool(void);
+BOOL kInitializeTCBPool(void);
 TCB_t *kAllocateTCB(void);
 void kFreeTCB(QWORD qwID);
 TCB_t* kCreateTask(QWORD qwFlag, QWORD qwEntryPointAddr);
@@ -115,7 +112,7 @@ void kSetupTask(TCB_t* poTCB, QWORD qwFlag, QWORD qwEntryPointAddr,
 	void *poStackAddr, QWORD qwStackSize);
 
 // Scheduler functions
-void kInitializeScheduler(void);
+BOOL kInitializeScheduler(void);
 void kSetRunningTask(TCB_t *poTask);
 TCB_t* kGetRunningTask(void);
 TCB_t* kGetNextTaskToRun(void);

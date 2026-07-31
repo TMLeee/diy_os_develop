@@ -17,7 +17,6 @@
 #include "bootmem.h"
 #include "mm.h"
 #include "memmap.h"
-#include "task.h"
 #include "descriptor.h"
 #include "utility.h"
 
@@ -36,11 +35,6 @@ static QWORD kGetStaticLayoutTop(void)
 	QWORD qwCandidate;
 
 	qwCandidate = IST_START_ADDR + IST_SIZE;
-	if(qwCandidate > qwTop) {
-		qwTop = qwCandidate;
-	}
-
-	qwCandidate = TASK_STACK_POOL_ADDR + ((QWORD)TASK_STACK_SIZE * TASK_MAX_CNT);
 	if(qwCandidate > qwTop) {
 		qwTop = qwCandidate;
 	}

@@ -9,19 +9,50 @@
 #include "task.h"
 #include "descriptor.h"
 #include "utility.h"
+#include "pmm.h"
+#include "mm.h"
+#include "vmalloc.h"
 
 // scheduler
 static Scheduler_t gstScheduler;
 static TcbPoolManager_t gstTCBPoolManager;
 
-void kInitializeTCBPool(void)
+// 풀의 '주소'만 할당자에서 받는다. 인덱스 산술과 qwID 인코딩은 그대로 두어
+// kAllocateTCB/kFreeTCB/kCreateTask의 계약이 바뀌지 않게 한다
+BOOL kInitializeTCBPool(void)
 {
-	int i;
+	QWORD qwTCBSize = ALIGN_UP(sizeof(TCB_t) * TASK_MAX_CNT, PAGE_SIZE);
+	QWORD qwTCBAddr;
+	void* pvStackPool;
+	int i, iTCBOrder = 0;
 
 	kMemSet(&(gstTCBPoolManager), 0, sizeof(gstTCBPoolManager));
 
-	gstTCBPoolManager.poStartAddr = (TCB_t*)TASK_TCB_POLL_ADDR;
-	kMemSet((void*)TASK_TCB_POLL_ADDR, 0, sizeof(TCB_t) * TASK_MAX_CNT);
+	while(((1UL << iTCBOrder) * PAGE_SIZE) < qwTCBSize) {
+		++iTCBOrder;
+	}
+	if(PMM_MAX_ORDER <= iTCBOrder) {
+		return FALSE;
+	}
+
+	qwTCBAddr = kAllocPages(iTCBOrder);
+	if(0 == qwTCBAddr) {
+		return FALSE;
+	}
+
+	// 스택 풀 8MB는 order 11이라 kAllocPages의 상한(4MB)을 넘는다.
+	// vmalloc은 물리적으로 흩어진 프레임을 연속 가상주소로 묶어 주므로
+	// 인덱스 산술을 그대로 두면서 그 제약을 피할 수 있고, 풀 앞뒤로
+	// guard page까지 덤으로 얻는다
+	pvStackPool = kVmapPages((int)(TASK_MAX_CNT * TASK_STACK_SIZE / PAGE_SIZE), 1, 1);
+	if(NULL == pvStackPool) {
+		kFreePages(qwTCBAddr, iTCBOrder);
+		return FALSE;
+	}
+
+	gstTCBPoolManager.poStartAddr = (TCB_t*)qwTCBAddr;
+	gstTCBPoolManager.qwStackPoolAddr = (QWORD)pvStackPool;
+	kMemSet((void*)qwTCBAddr, 0, (int)(sizeof(TCB_t) * TASK_MAX_CNT));
 
 	for(i=0; i<TASK_MAX_CNT; ++i) {
 		gstTCBPoolManager.poStartAddr[i].stLink.qwID = i;
@@ -29,6 +60,7 @@ void kInitializeTCBPool(void)
 
 	gstTCBPoolManager.iMaxCnt = TASK_MAX_CNT;
 	gstTCBPoolManager.iAllocatedCnt = 1;
+	return TRUE;
 }
 
 
@@ -87,7 +119,9 @@ TCB_t* kCreateTask(QWORD qwFlag, QWORD qwEntryPointAddr)
 		return NULL;
 	}
 
-	poStackAddr = (void*)(TASK_STACK_POOL_ADDR + (TASK_STACK_SIZE * (poTask->stLink.qwID & 0xFFFFFFFF)));
+	// 인덱스 기반 산술은 그대로. 베이스만 매크로에서 변수로 바뀌었다
+	poStackAddr = (void*)(gstTCBPoolManager.qwStackPoolAddr +
+			((QWORD)TASK_STACK_SIZE * (poTask->stLink.qwID & 0xFFFFFFFF)));
 	kSetupTask(poTask, qwFlag, qwEntryPointAddr, poStackAddr, TASK_STACK_SIZE);
 	kAddTaskToReadyList(poTask);
 	
@@ -125,11 +159,14 @@ void kSetupTask(TCB_t* poTCB, QWORD qwFlag, QWORD qwEntryPointAddr, void* poStac
 }
 
 
-void kInitializeScheduler(void)
+BOOL kInitializeScheduler(void)
 {
-	kInitializeTCBPool();
+	if(FALSE == kInitializeTCBPool()) {
+		return FALSE;
+	}
 	kInitializeList(&(gstScheduler.stReadyList));
 	gstScheduler.poRunningTask = kAllocateTCB();
+	return (NULL != gstScheduler.poRunningTask) ? TRUE : FALSE;
 }
 
 

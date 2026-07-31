@@ -129,9 +129,16 @@ void main(void)
 	}
 
 	kPrintf("CTCB Pool And Scheduler Initialize..[    ]\n");
-	kInitializeScheduler();
-	kSetCursor(38, iCursorY++);
-	kPrintf(" OK \n");
+	if(TRUE == kInitializeScheduler()) {
+		kSetCursor(38, iCursorY++);
+		kPrintf(" OK \n");
+	}
+	else {
+		kSetCursor(38, iCursorY++);
+		kPrintf("Fail\n");
+		kPrintf("Fail to initialize scheduler.");
+		while(1);
+	}
 
 	// 키보드 활성화
 	kPrintf("Initializing Keyboard Interface ....[    ]\n");

@@ -13,7 +13,6 @@
 #include "memmap.h"
 #include "bootmem.h"
 #include "descriptor.h"
-#include "task.h"
 #include "console.h"
 #include "utility.h"
 
@@ -135,9 +134,6 @@ BOOL kInitializePhysicalMemory(void)
 			(QWORD)__kernel_end - KERNEL_PHYS_BASE, "kernel image");
 	kReserveRange(0x600000, 0x100000, "kernel boot stack");
 	kReserveRange(IST_START_ADDR, IST_SIZE, "IST1 stack");
-	kReserveRange(TASK_TCB_POLL_ADDR,
-			(TASK_STACK_POOL_ADDR + ((QWORD)TASK_STACK_SIZE * TASK_MAX_CNT))
-			- TASK_TCB_POLL_ADDR, "TCB + task stack pools");
 	kReserveRange(kBootmemGetStart(), kBootmemGetUsed(), "bootmem (mem_map/bitmap)");
 
 	// 여기서부터는 물리 할당자만 메모리를 나눠 준다
