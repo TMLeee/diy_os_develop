@@ -79,7 +79,9 @@ want "reclaimed Kernel32 tables" 'frame 000000100000: allocatable' "$s2"
 want "kernel image still reserved" 'frame 000000200000: RESERVED' "$s2"
 
 sect "paging: 4KB split, W^X flags, direct map"
-s=$(CMD_WAIT=3 "$WORK/bootcheck.sh" 'cls' 'pgtest' 'pgwalk 202000' 2>&1)
+# walk the HIGH alias - that is where the kernel executes and where the 4KB
+# split lives. The identity alias is still a 2MB page by design.
+s=$(CMD_WAIT=3 "$WORK/bootcheck.sh" 'cls' 'pgtest' 'pgwalk FFFFFFFF80202000' 2>&1)
 # pgtest locates the sections from the linker symbols, so this does not go
 # stale when the kernel grows and the boundaries move
 want ".text  RO+X"                  'text at [0-9A-F]+: RO\+X' "$s"
@@ -87,6 +89,7 @@ want ".rodata RO+NX"                'rodata at [0-9A-F]+: RO\+NX' "$s"
 want ".data  RW+NX"                 'data at [0-9A-F]+: RW\+NX' "$s"
 deny "no section left as 2MB page"  'NOT 4KB' "$s"
 want "4KB pages over kernel image"  '4KB page' "$s"
+want "kernel executes from high alias" 'VA FFFFFFFF80202000.*|-> PA 000000202000' "$s"
 want "CR0.WP on"                    'WP=on' "$s"
 want "NX supported"                 'NX=supported' "$s"
 want "direct map ident->direct"     'ident->direct OK' "$s"
