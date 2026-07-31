@@ -23,6 +23,8 @@ static QWORD g_qwTotalPages = 0;
 static QWORD g_qwFreePages = 0;
 static QWORD g_qwReservedPages = 0;
 
+static void kBuildBuddyLists(void);
+
 
 static inline BOOL kIsFrameFree(QWORD qwPfn)
 {
@@ -138,6 +140,9 @@ BOOL kInitializePhysicalMemory(void)
 
 	// 여기서부터는 물리 할당자만 메모리를 나눠 준다
 	kBootmemFreeze();
+
+	// 비트맵 상태를 order별 free list로 옮긴다
+	kBuildBuddyLists();
 	return TRUE;
 }
 
@@ -164,6 +169,9 @@ void kUnreserveRange(QWORD qwBase, QWORD qwSize)
 			++g_qwFreePages;
 		}
 	}
+
+	// 풀린 프레임을 buddy 리스트에 다시 태운다
+	kBuildBuddyLists();
 }
 
 
@@ -191,60 +199,134 @@ QWORD kPageToPhys(const page_t* poPage)
 }
 
 
-// 2^iOrder 프레임을 그 크기에 정렬해서 찾는다. buddy로 교체할 때
-// 호출부가 바뀌지 않도록 정렬 조건을 지금부터 지킨다
-QWORD kAllocPages(int iOrder)
-{
-	QWORD qwCount, qwPfn, qwStep, i;
-	BOOL bAllFree;
+// ---- buddy allocator ----------------------------------------------------
+// 비트맵 선형 스캔을 order별 free list로 교체한다. 외부 API는 그대로다.
+// 짝(buddy)의 PFN은 pfn ^ (1 << order)로 구한다
 
-	if((NULL == g_pqwFreeBitmap) || (iOrder < 0) || (PMM_MAX_ORDER <= iOrder)) {
-		return 0;
+static KListHead_t g_vstFreeArea[PMM_MAX_ORDER];
+static QWORD g_vqFreeCount[PMM_MAX_ORDER];
+
+
+static void kBuddyPush(QWORD qwPfn, int iOrder)
+{
+	page_t* poPage = &(g_poMemMap[qwPfn]);
+
+	poPage->iOrder = iOrder;
+	poPage->qwFlags |= PG_BUDDY;
+	kListAdd(&(poPage->stLru), &(g_vstFreeArea[iOrder]));
+	++g_vqFreeCount[iOrder];
+}
+
+
+static void kBuddyRemove(QWORD qwPfn, int iOrder)
+{
+	page_t* poPage = &(g_poMemMap[qwPfn]);
+
+	kListDel(&(poPage->stLru));
+	poPage->qwFlags &= ~PG_BUDDY;
+	--g_vqFreeCount[iOrder];
+}
+
+
+// 비트맵으로 표시된 free 프레임들을 order별 free list로 옮긴다.
+// 정렬과 짝 조건을 만족하는 가장 큰 블록부터 묶는다
+static void kBuildBuddyLists(void)
+{
+	QWORD qwPfn, qwCount, i;
+	int iOrder;
+
+	for(iOrder=0; iOrder<PMM_MAX_ORDER; ++iOrder) {
+		kListInit(&(g_vstFreeArea[iOrder]));
+		g_vqFreeCount[iOrder] = 0;
 	}
 
-	qwCount = 1UL << iOrder;
-	qwStep = qwCount;
-
-	for(qwPfn=0; (qwPfn + qwCount) <= g_qwTotalPages; qwPfn += qwStep) {
-		bAllFree = TRUE;
-		for(i=0; i<qwCount; ++i) {
-			if(FALSE == kIsFrameFree(qwPfn + i)) {
-				bAllFree = FALSE;
-				break;
-			}
-		}
-		if(FALSE == bAllFree) {
+	qwPfn = 0;
+	while(qwPfn < g_qwTotalPages) {
+		if(FALSE == kIsFrameFree(qwPfn)) {
+			++qwPfn;
 			continue;
 		}
 
-		for(i=0; i<qwCount; ++i) {
-			kClearFrameFree(qwPfn + i);
-			g_poMemMap[qwPfn + i].iRefCount = 1;
+		// 이 위치에서 만들 수 있는 최대 블록을 찾는다
+		for(iOrder=PMM_MAX_ORDER-1; iOrder>0; --iOrder) {
+			qwCount = 1UL << iOrder;
+			if(0 != (qwPfn & (qwCount - 1))) {
+				continue;					// 정렬 안 됨
+			}
+			if((qwPfn + qwCount) > g_qwTotalPages) {
+				continue;
+			}
+			for(i=0; i<qwCount; ++i) {
+				if(FALSE == kIsFrameFree(qwPfn + i)) {
+					break;
+				}
+			}
+			if(i == qwCount) {
+				break;						// 전부 free
+			}
 		}
-		g_poMemMap[qwPfn].iOrder = iOrder;
-		g_qwFreePages -= qwCount;
-		return PFN_PHYS(qwPfn);
+
+		qwCount = 1UL << iOrder;
+		kBuddyPush(qwPfn, iOrder);
+		qwPfn += qwCount;
+	}
+}
+
+
+QWORD kAllocPages(int iOrder)
+{
+	int iCur;
+	QWORD qwPfn, qwBuddyPfn, i;
+	KListHead_t* poEntry;
+
+	if((NULL == g_poMemMap) || (iOrder < 0) || (PMM_MAX_ORDER <= iOrder)) {
+		return 0;
 	}
 
-	return 0;
+	// 요청 이상의 가장 작은 order에서 꺼낸다
+	for(iCur=iOrder; iCur<PMM_MAX_ORDER; ++iCur) {
+		if(FALSE == kListIsEmpty(&(g_vstFreeArea[iCur]))) {
+			break;
+		}
+	}
+	if(PMM_MAX_ORDER == iCur) {
+		return 0;
+	}
+
+	poEntry = g_vstFreeArea[iCur].poNext;
+	qwPfn = (QWORD)(KCONTAINER_OF(poEntry, page_t, stLru) - g_poMemMap);
+	kBuddyRemove(qwPfn, iCur);
+
+	// 요청 크기까지 반으로 쪼개면서 위쪽 반을 되돌린다
+	while(iCur > iOrder) {
+		--iCur;
+		qwBuddyPfn = qwPfn + (1UL << iCur);
+		kBuddyPush(qwBuddyPfn, iCur);
+	}
+
+	for(i=0; i<(1UL << iOrder); ++i) {
+		kClearFrameFree(qwPfn + i);
+		g_poMemMap[qwPfn + i].iRefCount = 1;
+	}
+	g_poMemMap[qwPfn].iOrder = iOrder;
+	g_qwFreePages -= (1UL << iOrder);
+	return PFN_PHYS(qwPfn);
 }
 
 
 void kFreePages(QWORD qwPhysAddr, int iOrder)
 {
 	QWORD qwPfn = PFN_DOWN(qwPhysAddr);
-	QWORD qwCount = 1UL << iOrder;
-	QWORD i;
+	QWORD qwBuddyPfn, i;
 
-	if((NULL == g_pqwFreeBitmap) || (iOrder < 0) || (PMM_MAX_ORDER <= iOrder)) {
+	if((NULL == g_poMemMap) || (iOrder < 0) || (PMM_MAX_ORDER <= iOrder)) {
 		return;
 	}
-	if((qwPfn + qwCount) > g_qwTotalPages) {
+	if((qwPfn + (1UL << iOrder)) > g_qwTotalPages) {
 		return;
 	}
 
-	for(i=0; i<qwCount; ++i) {
-		// 예약된 프레임이나 이미 free인 프레임은 건드리지 않는다
+	for(i=0; i<(1UL << iOrder); ++i) {
 		if(g_poMemMap[qwPfn + i].qwFlags & PG_RESERVED) {
 			return;
 		}
@@ -253,16 +335,40 @@ void kFreePages(QWORD qwPhysAddr, int iOrder)
 		}
 	}
 
-	for(i=0; i<qwCount; ++i) {
-		// PG_SLAB을 남겨 두면 이 프레임을 나중에 kmalloc이 큰 블록으로 받았을 때
-		// kfree가 slab으로 오판한다
+	for(i=0; i<(1UL << iOrder); ++i) {
 		g_poMemMap[qwPfn + i].qwFlags &= ~(PG_SLAB | PG_BUDDY);
 		g_poMemMap[qwPfn + i].iRefCount = 0;
 		g_poMemMap[qwPfn + i].pvPrivate = NULL;
 		kSetFrameFree(qwPfn + i);
 	}
-	g_poMemMap[qwPfn].iOrder = 0;
-	g_qwFreePages += qwCount;
+	g_qwFreePages += (1UL << iOrder);
+
+	// 짝이 같은 order로 비어 있으면 합친다
+	while(iOrder < (PMM_MAX_ORDER - 1)) {
+		qwBuddyPfn = qwPfn ^ (1UL << iOrder);
+
+		if((qwBuddyPfn + (1UL << iOrder)) > g_qwTotalPages) {
+			break;
+		}
+		// PG_RESERVED 프레임을 넘어 병합하면 0xA0000 구멍을 가로지른다
+		if(g_poMemMap[qwBuddyPfn].qwFlags & PG_RESERVED) {
+			break;
+		}
+		if(0 == (g_poMemMap[qwBuddyPfn].qwFlags & PG_BUDDY)) {
+			break;
+		}
+		if(g_poMemMap[qwBuddyPfn].iOrder != iOrder) {
+			break;
+		}
+
+		kBuddyRemove(qwBuddyPfn, iOrder);
+		if(qwBuddyPfn < qwPfn) {
+			qwPfn = qwBuddyPfn;
+		}
+		++iOrder;
+	}
+
+	kBuddyPush(qwPfn, iOrder);
 }
 
 
@@ -287,6 +393,7 @@ QWORD kGetReservedPageCount(void)
 void kPrintPhysicalMemoryStat(void)
 {
 	char vcTotal[24], vcFree[24], vcRes[24], vcHex[17];
+	int i;
 
 	if(NULL == g_poMemMap) {
 		kPrintf("Physical memory manager not initialized\n");
@@ -309,4 +416,12 @@ void kPrintPhysicalMemoryStat(void)
 	kToHexString(kBootmemGetStart(), vcHex, 12);
 	kUIToDecString(kBootmemGetUsed() / 1024, vcTotal);
 	kPrintf("bootmem  at %s used %sKB\n", vcHex, vcTotal);
+
+	// /proc/buddyinfo 대응. 병합이 제대로 되는지는 이 분포로 확인한다
+	kPrintf("buddy:");
+	for(i=0; i<PMM_MAX_ORDER; ++i) {
+		kUIToDecString(g_vqFreeCount[i], vcTotal);
+		kPrintf(" %s", vcTotal);
+	}
+	kPrintf("\n");
 }
