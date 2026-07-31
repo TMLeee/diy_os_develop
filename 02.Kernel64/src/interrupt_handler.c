@@ -15,6 +15,8 @@
 #include "task.h"
 #include "descriptor.h"
 #include "panic.h"
+#include "vmalloc.h"
+#include "assembly_utils.h"
 
 
 void kTimerHandler(int iVectorNum)
@@ -52,6 +54,11 @@ void kCommonExceptionHandler(int iVectorNum, QWORD qwErrCode, QWORD* pqwFrame)
 	}
 
 	kDumpRegisters(pqwFrame, iVectorNum, qwErrCode, bHasErrCode);
+
+	// #PF가 vmalloc guard page를 짚었다면 십중팔구 커널 스택 오버플로다
+	if((14 == iVectorNum) && (TRUE == kIsVmallocGuardPage(kReadCR2()))) {
+		kPanic("KERNEL STACK OVERFLOW - CR2 is in a vmalloc guard page");
+	}
 	kPanic("Unhandled exception %d (%s)", iVectorNum, kGetExceptionName(iVectorNum));
 }
 

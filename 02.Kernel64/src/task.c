@@ -23,7 +23,6 @@ BOOL kInitializeTCBPool(void)
 {
 	QWORD qwTCBSize = ALIGN_UP(sizeof(TCB_t) * TASK_MAX_CNT, PAGE_SIZE);
 	QWORD qwTCBAddr;
-	void* pvStackPool;
 	int i, iTCBOrder = 0;
 
 	kMemSet(&(gstTCBPoolManager), 0, sizeof(gstTCBPoolManager));
@@ -40,18 +39,7 @@ BOOL kInitializeTCBPool(void)
 		return FALSE;
 	}
 
-	// 스택 풀 8MB는 order 11이라 kAllocPages의 상한(4MB)을 넘는다.
-	// vmalloc은 물리적으로 흩어진 프레임을 연속 가상주소로 묶어 주므로
-	// 인덱스 산술을 그대로 두면서 그 제약을 피할 수 있고, 풀 앞뒤로
-	// guard page까지 덤으로 얻는다
-	pvStackPool = kVmapPages((int)(TASK_MAX_CNT * TASK_STACK_SIZE / PAGE_SIZE), 1, 1);
-	if(NULL == pvStackPool) {
-		kFreePages(qwTCBAddr, iTCBOrder);
-		return FALSE;
-	}
-
 	gstTCBPoolManager.poStartAddr = (TCB_t*)qwTCBAddr;
-	gstTCBPoolManager.qwStackPoolAddr = (QWORD)pvStackPool;
 	kMemSet((void*)qwTCBAddr, 0, (int)(sizeof(TCB_t) * TASK_MAX_CNT));
 
 	for(i=0; i<TASK_MAX_CNT; ++i) {
@@ -119,13 +107,61 @@ TCB_t* kCreateTask(QWORD qwFlag, QWORD qwEntryPointAddr)
 		return NULL;
 	}
 
-	// 인덱스 기반 산술은 그대로. 베이스만 매크로에서 변수로 바뀌었다
-	poStackAddr = (void*)(gstTCBPoolManager.qwStackPoolAddr +
-			((QWORD)TASK_STACK_SIZE * (poTask->stLink.qwID & 0xFFFFFFFF)));
+	// 스택마다 개별 할당. 아래에 guard page 한 장을 두면 오버플로가
+	// 아래 스택을 조용히 덮는 대신 #PF로 잡힌다
+	poStackAddr = kVmapPages(TASK_STACK_PAGES, 1, 0);
+	if(NULL == poStackAddr) {
+		kFreeTCB(poTask->stLink.qwID);
+		return NULL;
+	}
+
 	kSetupTask(poTask, qwFlag, qwEntryPointAddr, poStackAddr, TASK_STACK_SIZE);
 	kAddTaskToReadyList(poTask);
-	
+
 	return poTask;
+}
+
+
+// 태스크를 정리한다. 이 커널이 스택을 반납하는 최초의 경로
+void kFreeTask(TCB_t* poTask)
+{
+	if((NULL == poTask) || (NULL == poTask->pvStackAddr)) {
+		return;
+	}
+
+	kVfree(poTask->pvStackAddr);
+	poTask->pvStackAddr = NULL;
+	poTask->qwStackSize = 0;
+	kFreeTCB(poTask->stLink.qwID);
+}
+
+
+// 현재 태스크를 ready 리스트에서 제외하고 다음으로 넘어간다
+BOOL kEndTask(QWORD qwTaskID)
+{
+	TCB_t* poTarget = NULL;
+	KListHead_t* poDummy;
+	int i;
+
+	(void)poDummy;
+
+	for(i=0; i<gstTCBPoolManager.iMaxCnt; ++i) {
+		if(gstTCBPoolManager.poStartAddr[i].stLink.qwID == qwTaskID) {
+			poTarget = &(gstTCBPoolManager.poStartAddr[i]);
+			break;
+		}
+	}
+	if((NULL == poTarget) || (poTarget == gstScheduler.poRunningTask)) {
+		return FALSE;
+	}
+
+	// ready 리스트에서 빼낸다
+	if(NULL == kRemoveList(&(gstScheduler.stReadyList), qwTaskID)) {
+		return FALSE;
+	}
+
+	kFreeTask(poTarget);
+	return TRUE;
 }
 
 

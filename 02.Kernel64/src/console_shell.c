@@ -19,6 +19,7 @@
 #include "mm.h"
 #include "slab.h"
 #include "vmalloc.h"
+#include "task.h"
 
 
 ShellCmdEntry_t gtCommandTable[] =
@@ -43,7 +44,8 @@ ShellCmdEntry_t gtCommandTable[] =
 		{"slabinfo", "Show Slab Cache Stat", kShowSlabInfo},
 		{"kmalloctest", "kmalloc/kfree Stress, ex)kmalloctest 200", kKmallocTest},
 		{"vmalloctest", "vmalloc + Guard Page Test, ex)vmalloctest 4", kVmallocTest},
-		{"ticks", "Show Timer Tick Count", kShowTickCount}
+		{"ticks", "Show Timer Tick Count", kShowTickCount},
+		{"stackoverflow", "Deliberate Kernel Stack Overflow", kStackOverflowTest}
 };
 
 
@@ -813,4 +815,40 @@ void kShowTickCount(const char* poParamBuff)
 
 	kUIToDecString(kGetTickCnt(), vcNum);
 	kPrintf("ticks=%s\n", vcNum);
+}
+
+
+// 무한 재귀로 스택을 넘긴다. guard page가 있으면 #PF로 잡혀야 한다
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Winfinite-recursion"
+static QWORD kRecurse(QWORD qwDepth)
+{
+	volatile BYTE vcPad[256];
+
+	vcPad[0] = (BYTE)qwDepth;
+	vcPad[255] = (BYTE)qwDepth;
+	return vcPad[0] + kRecurse(qwDepth + 1);
+}
+#pragma GCC diagnostic pop
+
+
+static void kStackOverflowTask(void)
+{
+	kRecurse(0);
+	while(1) {
+		kSchedule();
+	}
+}
+
+
+void kStackOverflowTest(const char* poParamBuff)
+{
+	// 셸은 EntryPoint.s의 부트 스택 위에서 돈다. 거기에는 guard page가 없어서
+	// 넘쳐도 그냥 아래 메모리를 덮을 뿐이다. vmalloc 스택을 쓰는 태스크를
+	// 따로 만들어 그 위에서 넘겨야 guard page를 실제로 시험할 수 있다
+	if(NULL == kCreateTask(0, (QWORD)kStackOverflowTask)) {
+		kPrintf("task creation failed\n");
+		return;
+	}
+	kPrintf("overflow task created; expect a guard-page #PF\n");
 }

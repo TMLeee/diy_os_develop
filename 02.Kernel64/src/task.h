@@ -11,6 +11,7 @@
 
 #include "types.h"
 #include "list.h"
+#include "mm.h"
 
 
 #define TASK_REGISTER_COUNT		(5 + 19)
@@ -42,9 +43,12 @@
 #define TASK_RSP_OFFSET			22
 #define TASK_SS_OFFSET			23
 
-// 풀 크기. 주소는 더 이상 고정이 아니다 - 부팅 때 프레임 할당자에서 받는다
 #define TASK_MAX_CNT			1024
-#define TASK_STACK_SIZE			8192
+
+// 리눅스 THREAD_SIZE와 같은 16KB. 스택마다 아래에 매핑하지 않은 페이지를
+// 한 장 둬서 오버플로가 조용한 손상 대신 #PF가 되게 한다
+#define TASK_STACK_SIZE			16384
+#define TASK_STACK_PAGES		(TASK_STACK_SIZE / PAGE_SIZE)
 
 // Invalid task id
 #define TASK_INVALID_ID			0xFFFFFFFFFFFFFFFF
