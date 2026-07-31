@@ -42,7 +42,8 @@ ShellCmdEntry_t gtCommandTable[] =
 		{"pgtest", "Test Direct Map And Page Protection", kPageProtTest},
 		{"slabinfo", "Show Slab Cache Stat", kShowSlabInfo},
 		{"kmalloctest", "kmalloc/kfree Stress, ex)kmalloctest 200", kKmallocTest},
-		{"vmalloctest", "vmalloc + Guard Page Test, ex)vmalloctest 4", kVmallocTest}
+		{"vmalloctest", "vmalloc + Guard Page Test, ex)vmalloctest 4", kVmallocTest},
+		{"ticks", "Show Timer Tick Count", kShowTickCount}
 };
 
 
@@ -802,4 +803,14 @@ void kVmallocTest(const char* poParamBuff)
 	qwAfter = kGetFreePageCount();
 	kPrintf("frames %d -> %d %s\n", (int)qwBefore, (int)qwAfter,
 			(qwBefore == qwAfter) ? "OK" : "LEAK");
+}
+
+
+// 타이머 틱 수. 벽시계 시간과 대조하면 실제 인터럽트 주기를 잴 수 있다
+void kShowTickCount(const char* poParamBuff)
+{
+	char vcNum[24];
+
+	kUIToDecString(kGetTickCnt(), vcNum);
+	kPrintf("ticks=%s\n", vcNum);
 }

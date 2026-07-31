@@ -20,6 +20,7 @@
 #include "paging.h"
 #include "slab.h"
 #include "vmalloc.h"
+#include "pit.h"
 
 
 void kPrintString(int x, int y, const char* str)
@@ -158,6 +159,11 @@ void main(void)
 	kPrintf("Initializing PIC Controller ........[    ]\n");
 	kInitializePIC();
 	kMaskPICInterrupt(0);
+
+	// PIT를 한 번도 초기화하지 않아 IRQ0가 BIOS 기본값 18.2Hz로 돌고 있었다.
+	// 1ms 주기로 올리면 TASK_PROCESSOR_TIME(5틱) 퀀텀이 의도한 5ms가 된다
+	kInitializePIT(MS_TO_COUNT(1), TRUE);
+
 	kEnableInterrupt();
 	kSetCursor(38, iCursorY++);
 	kPrintf(" OK \n");
