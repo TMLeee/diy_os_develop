@@ -510,11 +510,11 @@ void kCrash(const char* poParamBuff)
 	// W^X 확인용. .text 쓰기와 .data 실행은 각각 #PF여야 한다
 	else if(0 == kMemCmp(vcType, "wtext", 5)) {
 		kPrintf("Writing to .text (RO)...\n");
-		*(volatile BYTE*)KERNEL_PHYS_BASE = 0x90;
+		*(volatile BYTE*)(KERNEL_VMA + KERNEL_PHYS_BASE) = 0x90;
 	}
 	else if(0 == kMemCmp(vcType, "xdata", 5)) {
 		kPrintf("Executing in .data (NX)...\n");
-		((void (*)(void))(QWORD)__rodata_end)();
+		((void (*)(void))(QWORD)__rodata_end)();   // 고주소 별칭. NX가 걸린 쪽이다
 	}
 	else {
 		kPrintf("ex) crash div0|pf|gp|ud\n");
@@ -570,7 +570,8 @@ void kPageProtTest(const char* poParamBuff)
 			(TRUE == kIsNXSupported()) ? "supported" : "no");
 
 	// 섹션 경계는 커널이 커지면 움직이므로 주소를 링커 심볼에서 가져온다
-	vqProbe[0] = KERNEL_PHYS_BASE;
+	// 보호는 실행 별칭(고주소)에 걸려 있다. identity 쪽은 여전히 RW+NX다
+	vqProbe[0] = KERNEL_VMA + KERNEL_PHYS_BASE;
 	vqProbe[1] = (QWORD)__text_end;
 	vqProbe[2] = (QWORD)__rodata_end;
 

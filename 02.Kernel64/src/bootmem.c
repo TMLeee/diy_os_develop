@@ -17,6 +17,7 @@
 #include "bootmem.h"
 #include "mm.h"
 #include "memmap.h"
+#include "paging.h"
 #include "descriptor.h"
 #include "utility.h"
 
@@ -31,7 +32,8 @@ static BOOL g_bBootmemFrozen = TRUE;
 // 유도한다. 스텝 20/22에서 풀이 할당자로 옮겨가면 이 값도 같이 내려간다
 static QWORD kGetStaticLayoutTop(void)
 {
-	QWORD qwTop = (QWORD)__kernel_end;
+	// 심볼은 가상주소다. 여기서 필요한 건 물리 상한이다
+	QWORD qwTop = __pa(__kernel_end);
 	QWORD qwCandidate;
 
 	qwCandidate = IST_START_ADDR + IST_SIZE;

@@ -12,6 +12,7 @@
 #include "pmm.h"
 #include "memmap.h"
 #include "bootmem.h"
+#include "paging.h"
 #include "descriptor.h"
 #include "console.h"
 #include "utility.h"
@@ -133,7 +134,7 @@ BOOL kInitializePhysicalMemory(void)
 	kReserveRange(KERNEL32_PAGETABLE_BASE, KERNEL32_PAGETABLE_SIZE, "Kernel32 page tables");
 	kReserveRange(GDTR_START_ADDR, PAGE_SIZE, "GDT/TSS/IDT");
 	kReserveRange(KERNEL_PHYS_BASE,
-			(QWORD)__kernel_end - KERNEL_PHYS_BASE, "kernel image");
+			__pa(__kernel_end) - KERNEL_PHYS_BASE, "kernel image");
 	kReserveRange(0x600000, 0x100000, "kernel boot stack");
 	kReserveRange(IST_START_ADDR, IST_SIZE, "IST1 stack");
 	kReserveRange(kBootmemGetStart(), kBootmemGetUsed(), "bootmem (mem_map/bitmap)");

@@ -34,8 +34,10 @@ QWORD __pa(const void* pvVirtAddr)
 {
 	QWORD qwVirtAddr = (QWORD)pvVirtAddr;
 
+	// elf_x86_64.x 가 AT(0x200000) 으로 VMA = KERNEL_VMA + PA 를 만든다.
+	// VMA 에 이미 0x200000 이 들어 있으므로 KERNEL_PHYS_BASE 를 또 더하면 안 된다
 	if(qwVirtAddr >= KERNEL_VMA) {
-		return qwVirtAddr - KERNEL_VMA + KERNEL_PHYS_BASE;
+		return qwVirtAddr - KERNEL_VMA;
 	}
 	if(qwVirtAddr >= PAGE_OFFSET) {
 		return qwVirtAddr - PAGE_OFFSET;
@@ -284,14 +286,19 @@ static BOOL kMapRange2M(QWORD qwCR3, QWORD qwVirtAddr, QWORD qwPhysAddr,
 // PDE를 제자리에서 쪼갤 수는 없으므로 PT를 먼저 완성한 뒤 PDE를 한 번에 바꾼다
 static BOOL kProtectKernelImage(QWORD qwCR3, QWORD qwNXFlag)
 {
-	QWORD qwPTFrame, qwBase, qwAddr, qwFlags;
+	QWORD qwPTFrame, qwBase, qwPhys, qwFlags;
+	QWORD qwTextEndPhys, qwRodataEndPhys;
 	pte_t* poPT;
 	pte_t* poTable;
 	pte_t* poPD;
 	int i;
 
+	// 섹션 심볼은 이제 가상주소다. 물리 오프셋과 비교하려면 __pa()를 거쳐야 한다
+	qwTextEndPhys = __pa(__text_end);
+	qwRodataEndPhys = __pa(__rodata_end);
+
 	// 커널 이미지가 2MB 하나를 넘어가면 이 로직으로는 부족하다
-	if((QWORD)__kernel_end > (KERNEL_PHYS_BASE + PAGE_SIZE_2M)) {
+	if(__pa(__kernel_end) > (KERNEL_PHYS_BASE + PAGE_SIZE_2M)) {
 		return FALSE;
 	}
 
@@ -300,22 +307,24 @@ static BOOL kProtectKernelImage(QWORD qwCR3, QWORD qwNXFlag)
 		return FALSE;
 	}
 	poPT = (pte_t*)qwPTFrame;
-	qwBase = KERNEL_PHYS_BASE;
+
+	// 코드가 실제로 실행되는 별칭은 고주소 쪽이다. 그쪽을 쪼갠다
+	qwBase = KERNEL_VMA + KERNEL_PHYS_BASE;
 
 	for(i=0; i<PAGE_ENTRY_COUNT; ++i) {
-		qwAddr = qwBase + ((QWORD)i * PAGE_SIZE);
+		qwPhys = KERNEL_PHYS_BASE + ((QWORD)i * PAGE_SIZE);
 
-		if(qwAddr < (QWORD)__text_end) {
+		if(qwPhys < qwTextEndPhys) {
 			qwFlags = PTE_G;								// .text  RO + X
 		}
-		else if(qwAddr < (QWORD)__rodata_end) {
+		else if(qwPhys < qwRodataEndPhys) {
 			qwFlags = PTE_G | qwNXFlag;						// .rodata RO + NX
 		}
 		else {
 			qwFlags = PTE_RW | PTE_G | qwNXFlag;			// .data/.bss/여백 RW + NX
 		}
 
-		poPT[i] = PTE_ADDR(qwAddr) | qwFlags | PTE_P;
+		poPT[i] = PTE_ADDR(qwPhys) | qwFlags | PTE_P;
 	}
 
 	// 완성된 PT로 PDE를 교체
@@ -371,7 +380,15 @@ BOOL kInitializePaging(void)
 		return FALSE;
 	}
 
-	// 3) 커널 이미지가 든 2MB를 4KB로 쪼개고 섹션별 권한을 적용한다
+	// 3) 커널 이미지의 고주소 창. NX를 걸면 안 된다 - CR3를 바꾸는 순간
+	//    다음 명령어 인출이 바로 이 페이지에서 일어나므로 #PF -> 트리플폴트다.
+	//    섹션별 권한은 바로 아래 kProtectKernelImage()가 4KB로 쪼개며 준다
+	if(FALSE == kMapRange2M(qwPML4, KERNEL_VMA + KERNEL_PHYS_BASE,
+				KERNEL_PHYS_BASE, PAGE_SIZE_2M, PTE_RW | PTE_G)) {
+		return FALSE;
+	}
+
+	// 4) 그 2MB를 4KB로 쪼개고 섹션별 권한을 적용한다
 	if(FALSE == kProtectKernelImage(qwPML4, qwNXFlag)) {
 		return FALSE;
 	}

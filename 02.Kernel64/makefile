@@ -2,8 +2,9 @@ NASM64 = nasm -f elf64 -g -F dwarf
 # 커널용 필수 플래그: red zone 금지, .eh_frame 제거, .data.rel.ro 방지
 GCC64 = x86_64-pc-linux-gcc.exe -c -g -gdwarf-4 -m64 -ffreestanding \
         -mno-red-zone -fno-stack-protector -fno-asynchronous-unwind-tables \
-        -fno-pic -fno-pie -Wall
-LD64 = x86_64-pc-linux-ld.exe -melf_x86_64 -T ../elf_x86_64.x -nostdlib -e main -Ttext 0x200000
+        -fno-pic -fno-pie -mcmodel=kernel -Wall
+# -Ttext는 절대 넣지 말 것: 링커 스크립트의 섹션 주소를 조용히 덮어쓴다
+LD64 = x86_64-pc-linux-ld.exe -melf_x86_64 -T ../elf_x86_64.x -nostdlib -e main
 
 # 바이너리 이미지 생성을 위한 OBJCOPY 옵션 정의
 OBJCOPY64 = x86_64-pc-linux-objcopy -j .text -j .data -j .rodata -j .bss -S -O binary
