@@ -68,11 +68,15 @@ sect "physical frame allocator"
 s=$(CMD_WAIT=4 "$WORK/bootcheck.sh" 'pmemstat' 'alloctest 64 0' 'alloctest 8 10' 'pmemstat' 2>&1)
 want "pmemstat reports frames"  'frames total=[0-9]+ free=[0-9]+ reserved=[0-9]+' "$s"
 want "order-0 alloc"            'allocated 64 \(order 0\)' "$s"
-want "order-10 alloc (4MB)"     'allocated 8 \(order 10\) first=[0-9A-F]*[04]00000' "$s"
+want "order-10 alloc (4MB)"     'allocated 8 \(order 10\)' "$s"
 deny "no misaligned block"      'MISALIGNED' "$s"
 deny "no corrupted pattern"     'PATTERN CORRUPT' "$s"
 deny "no frame leak"            'LEAK' "$s"
-want "reclaimed Kernel32 tables" 'first=000000100000' "$s"
+# the buddy allocator pops from a free list, so the first address returned is
+# no longer the lowest frame - check the frame's own state instead
+s2=$(CMD_WAIT=3 "$WORK/bootcheck.sh" 'cls' 'frameinfo 100000' 'frameinfo 200000' 2>&1)
+want "reclaimed Kernel32 tables" 'frame 000000100000: allocatable' "$s2"
+want "kernel image still reserved" 'frame 000000200000: RESERVED' "$s2"
 
 sect "paging: 4KB split, W^X flags, direct map"
 s=$(CMD_WAIT=3 "$WORK/bootcheck.sh" 'cls' 'pgtest' 'pgwalk 202000' 2>&1)

@@ -45,7 +45,8 @@ ShellCmdEntry_t gtCommandTable[] =
 		{"kmalloctest", "kmalloc/kfree Stress, ex)kmalloctest 200", kKmallocTest},
 		{"vmalloctest", "vmalloc + Guard Page Test, ex)vmalloctest 4", kVmallocTest},
 		{"ticks", "Show Timer Tick Count", kShowTickCount},
-		{"stackoverflow", "Deliberate Kernel Stack Overflow", kStackOverflowTest}
+		{"stackoverflow", "Deliberate Kernel Stack Overflow", kStackOverflowTest},
+		{"frameinfo", "Show One Frame's State, ex)frameinfo 100000", kShowFrameInfo}
 };
 
 
@@ -851,4 +852,36 @@ void kStackOverflowTest(const char* poParamBuff)
 		return;
 	}
 	kPrintf("overflow task created; expect a guard-page #PF\n");
+}
+
+
+// 프레임 하나의 상태를 그대로 보여 준다. 할당 순서에 의존하지 않고
+// "이 물리주소가 할당 가능한가"를 직접 확인할 수 있다
+void kShowFrameInfo(const char* poParamBuff)
+{
+	ParamList_t stList;
+	char vcParam[30], vcHex[17];
+	QWORD qwPhysAddr;
+	page_t* poPage;
+
+	kInitializeParam(&stList, poParamBuff);
+	if(0 == kGetNextParam(&stList, vcParam)) {
+		kPrintf("ex) frameinfo 100000\n");
+		return;
+	}
+
+	qwPhysAddr = (QWORD)kAToI(vcParam, 16);
+	poPage = kPhysToPage(qwPhysAddr);
+	if(NULL == poPage) {
+		kPrintf("no page_t for that address\n");
+		return;
+	}
+
+	kToHexString(PAGE_ALIGN_DOWN(qwPhysAddr), vcHex, 12);
+	kPrintf("frame %s: %s %s%s%s order=%d ref=%d\n", vcHex,
+			(poPage->qwFlags & PG_RESERVED) ? "RESERVED" : "allocatable",
+			(poPage->qwFlags & PG_BUDDY) ? "buddy-free " : "",
+			(poPage->qwFlags & PG_SLAB) ? "slab " : "",
+			(0 == poPage->qwFlags) ? "in-use " : "",
+			poPage->iOrder, poPage->iRefCount);
 }

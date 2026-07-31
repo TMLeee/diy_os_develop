@@ -67,6 +67,7 @@ void kKmallocTest(const char* poParamBuff);
 void kVmallocTest(const char* poParamBuff);
 void kShowTickCount(const char* poParamBuff);
 void kStackOverflowTest(const char* poParamBuff);
+void kShowFrameInfo(const char* poParamBuff);
 
 
 #endif /* 02_KERNEL64_SRC_CONSOLE_SHELL_H_ */
