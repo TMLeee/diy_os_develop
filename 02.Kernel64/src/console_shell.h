@@ -64,6 +64,7 @@ void kPageWalkTest(const char* poParamBuff);
 void kPageProtTest(const char* poParamBuff);
 void kShowSlabInfo(const char* poParamBuff);
 void kKmallocTest(const char* poParamBuff);
+void kVmallocTest(const char* poParamBuff);
 
 
 #endif /* 02_KERNEL64_SRC_CONSOLE_SHELL_H_ */

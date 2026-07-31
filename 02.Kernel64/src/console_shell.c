@@ -18,6 +18,7 @@
 #include "paging.h"
 #include "mm.h"
 #include "slab.h"
+#include "vmalloc.h"
 
 
 ShellCmdEntry_t gtCommandTable[] =
@@ -40,7 +41,8 @@ ShellCmdEntry_t gtCommandTable[] =
 		{"pgwalk", "Walk Page Tables, ex)pgwalk 202000", kPageWalkTest},
 		{"pgtest", "Test Direct Map And Page Protection", kPageProtTest},
 		{"slabinfo", "Show Slab Cache Stat", kShowSlabInfo},
-		{"kmalloctest", "kmalloc/kfree Stress, ex)kmalloctest 200", kKmallocTest}
+		{"kmalloctest", "kmalloc/kfree Stress, ex)kmalloctest 200", kKmallocTest},
+		{"vmalloctest", "vmalloc + Guard Page Test, ex)vmalloctest 4", kVmallocTest}
 };
 
 
@@ -733,4 +735,71 @@ void kKmallocTest(const char* poParamBuff)
 	kUIToDecString(qwAfter, vcNum2);
 	kPrintf("kmalloc %d blocks, pattern %s, frames %s -> %s\n",
 			iGot, (TRUE == bOk) ? "OK" : "BAD", vcNum, vcNum2);
+}
+
+
+// vmalloc 영역이 실제로 쓰기 가능하고, guard page가 매핑되지 않았는지 확인
+void kVmallocTest(const char* poParamBuff)
+{
+	ParamList_t stList;
+	char vcParam[30], vcHex[17];
+	int iPages, i;
+	QWORD qwBefore, qwAfter;
+	volatile BYTE* pucBuf;
+	pte_t vqEntry[4];
+	QWORD qwGuard;
+
+	kInitializeParam(&stList, poParamBuff);
+	iPages = (0 == kGetNextParam(&stList, vcParam)) ? 4 : kAToI(vcParam, 10);
+	if((iPages <= 0) || (64 < iPages)) {
+		iPages = 4;
+	}
+
+	// 첫 vmap은 이 영역의 중간 페이지 테이블과 vmalloc_area 슬랩까지 만든다.
+	// 그건 일회성 설비 비용이므로 워밍업으로 걷어내고 두 번째부터 잰다
+	pucBuf = (volatile BYTE*)kVmapPages(1, 1, 1);
+	if(NULL != pucBuf) {
+		kVfree((void*)pucBuf);
+	}
+
+	qwBefore = kGetFreePageCount();
+
+	// 앞뒤로 guard 한 장씩
+	pucBuf = (volatile BYTE*)kVmapPages(iPages, 1, 1);
+	if(NULL == pucBuf) {
+		kPrintf("kVmapPages failed\n");
+		return;
+	}
+	kToHexString((QWORD)pucBuf, vcHex, 16);
+	kPrintf("vmap %d pages at %s\n", iPages, vcHex);
+
+	// 전 범위가 쓰기 가능한지
+	for(i=0; i<(iPages * PAGE_SIZE); ++i) {
+		pucBuf[i] = (BYTE)(i & 0xFF);
+	}
+	for(i=0; i<(iPages * PAGE_SIZE); ++i) {
+		if(pucBuf[i] != (BYTE)(i & 0xFF)) {
+			kPrintf("DATA MISMATCH at %d\n", i);
+			break;
+		}
+	}
+	kPrintf("write/read over %d pages OK\n", iPages);
+
+	// 앞쪽 guard가 정말 비어 있는지 (페이지 테이블로 확인, 접근하면 죽는다)
+	qwGuard = (QWORD)pucBuf - PAGE_SIZE;
+	kToHexString(qwGuard, vcHex, 16);
+	kPrintf("guard below %s: %s\n", vcHex,
+			(PG_LEVEL_NONE == kWalkPageTable(kReadCR3(), qwGuard, vqEntry))
+			? "unmapped (good)" : "MAPPED (bad)");
+
+	qwGuard = (QWORD)pucBuf + ((QWORD)iPages * PAGE_SIZE);
+	kToHexString(qwGuard, vcHex, 16);
+	kPrintf("guard above %s: %s\n", vcHex,
+			(PG_LEVEL_NONE == kWalkPageTable(kReadCR3(), qwGuard, vqEntry))
+			? "unmapped (good)" : "MAPPED (bad)");
+
+	kVfree((void*)pucBuf);
+	qwAfter = kGetFreePageCount();
+	kPrintf("frames %d -> %d %s\n", (int)qwBefore, (int)qwAfter,
+			(qwBefore == qwAfter) ? "OK" : "LEAK");
 }
