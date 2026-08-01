@@ -575,7 +575,7 @@ void kPageProtTest(const char* poParamBuff)
 			(TRUE == kIsNXSupported()) ? "supported" : "no");
 
 	// 섹션 경계는 커널이 커지면 움직이므로 주소를 링커 심볼에서 가져온다
-	// 보호는 실행 별칭(고주소)에 걸려 있다. identity 쪽은 여전히 RW+NX다
+	// 커널이 실제로 실행되는 고주소 별칭을 본다. 보호는 거기에 걸려 있다
 	vqProbe[0] = KERNEL_VMA + KERNEL_PHYS_BASE;
 	vqProbe[1] = (QWORD)__text_end;
 	vqProbe[2] = (QWORD)__rodata_end;
@@ -902,15 +902,23 @@ void kMapTest(const char* poParamBuff)
 {
 	ParamList_t stList;
 	char vcParam[30], vcHex[17];
-	QWORD qwVirtAddr, qwPhys;
+	QWORD qwVirtAddr, qwPhys, qwUS = 0;
 	volatile QWORD* pqw;
+	pte_t vqEntry[4];
+	int i, iLevel, iUserLevels = 0;
 
 	kInitializeParam(&stList, poParamBuff);
 	if(0 == kGetNextParam(&stList, vcParam)) {
-		kPrintf("ex) maptest 100000000\n");
+		kPrintf("ex) maptest 100000000 [user]\n");
 		return;
 	}
 	qwVirtAddr = PAGE_ALIGN_DOWN((QWORD)kAToI(vcParam, 16));
+
+	// 두 번째 인자가 있으면 유저 페이지로 매핑한다. x86-64는 네 레벨의 U/S를
+	// AND하므로 중간 레벨까지 US가 서 있어야 ring3에서 닿는다
+	if(0 != kGetNextParam(&stList, vcParam)) {
+		qwUS = PTE_US;
+	}
 
 	qwPhys = kAllocPage();
 	if(0 == qwPhys) {
@@ -920,7 +928,7 @@ void kMapTest(const char* poParamBuff)
 
 	kToHexString(qwVirtAddr, vcHex, 16);
 	if(FALSE == kMapPage(kReadCR3(), qwVirtAddr, qwPhys,
-				PTE_RW | (kIsNXSupported() ? PTE_NX : 0))) {
+				PTE_RW | qwUS | (kIsNXSupported() ? PTE_NX : 0))) {
 		kPrintf("VA %s: kMapPage FAILED (blocked by an existing 2MB page)\n", vcHex);
 		kFreePage(qwPhys);
 		return;
@@ -930,6 +938,17 @@ void kMapTest(const char* poParamBuff)
 	*pqw = 0xC0FFEE0000BEEF;
 	kPrintf("VA %s: mapped, readback %s\n", vcHex,
 			(0xC0FFEE0000BEEF == *pqw) ? "OK" : "MISMATCH");
+
+	// 중간 레벨까지 US가 전파됐는지 센다. 리프만 US면 ring3에서 못 닿는다
+	iLevel = kWalkPageTable(kReadCR3(), qwVirtAddr, vqEntry);
+	if(PG_LEVEL_4K == iLevel) {
+		for(i=0; i<4; ++i) {
+			if(vqEntry[i] & PTE_US) {
+				++iUserLevels;
+			}
+		}
+		kPrintf("US levels %d/4 (want %d)\n", iUserLevels, qwUS ? 4 : 0);
+	}
 
 	kUnmapPage(kReadCR3(), qwVirtAddr);
 	kFreePage(qwPhys);

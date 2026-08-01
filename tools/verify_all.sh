@@ -149,5 +149,13 @@ want "unknown call is -ENOSYS"       'bad call   -> -38' "$s"
 want "bad fd is -EBADF"              'bad fd     -> -9' "$s"
 want "every call dispatched"         'dispatched 5 syscalls' "$s"
 
+sect "user mappings: low half and US propagation"
+s=$(CMD_WAIT=3 "$WORK/bootcheck.sh" 'cls' 'maptest 400000' 'maptest 500000 user' 2>&1)
+# the low half is what the identity map used to occupy - user space goes here
+want "4KB map below RAM top"     'VA 0000000000400000: mapped, readback OK' "$s"
+want "kernel map stays supervisor" 'US levels 0/4 \(want 0\)' "$s"
+# x86-64 ANDs U/S across all four levels, so a leaf-only US is unreachable
+want "US reaches every level"    'US levels 4/4 \(want 4\)' "$s"
+
 echo "=============== $pass passed, $fail failed ==============="
 exit $([ "$fail" -eq 0 ] && echo 0 || echo 1)

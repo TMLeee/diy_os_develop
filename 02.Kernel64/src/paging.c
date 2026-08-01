@@ -29,7 +29,7 @@ BOOL kIsNXSupported(void)
 }
 
 
-// direct map 영역이면 오프셋을 빼고, identity 영역이면 그대로 반환한다
+// 고주소 커널 창과 direct map을 각각 되돌린다. 저주소는 유저 VA라 그대로다
 QWORD __pa(const void* pvVirtAddr)
 {
 	QWORD qwVirtAddr = (QWORD)pvVirtAddr;
@@ -67,7 +67,7 @@ int kWalkPageTable(QWORD qwCR3, QWORD qwVirtAddr, pte_t* pvqEntry)
 		pvqEntry[i] = 0;
 	}
 
-	// identity 매핑이므로 테이블의 물리주소를 그대로 참조할 수 있다
+	// 테이블 엔트리는 물리주소다. 걷는 쪽은 direct map으로 본다
 	poTable = (pte_t*)__va(PTE_ADDR(qwCR3));
 	qwEntry = poTable[PML4_INDEX(qwVirtAddr)];
 	pvqEntry[0] = qwEntry;
@@ -181,11 +181,15 @@ void kDumpPageWalk(QWORD qwCR3, QWORD qwVirtAddr)
 }
 
 
-// 중간 테이블을 따라가며 필요하면 새로 만든다. 반환값은 다음 레벨 테이블의
-// 가상주소(현재는 identity라 물리주소와 같다)
-static pte_t* kGetNextLevel(pte_t* poTable, QWORD qwIndex, BOOL bAlloc)
+// 중간 테이블을 따라가며 필요하면 새로 만든다. 반환값은 direct map 주소다.
+// 중간 레벨은 항상 P|RW로 두고 제약은 리프 PTE에만 건다. x86-64는 네 레벨의
+// 권한을 AND하므로 중간에서 RW를 빼면 그 아래 전부가 읽기 전용이 된다.
+// US만 요청대로 전파하고, 이미 있는 엔트리는 US를 올려 준다(리눅스와 같다)
+static pte_t* kGetNextLevel(pte_t* poTable, QWORD qwIndex, BOOL bAlloc, QWORD qwUS)
 {
 	QWORD qwFrame;
+
+	qwUS &= PTE_US;
 
 	if(0 == (poTable[qwIndex] & PTE_P)) {
 		if(FALSE == bAlloc) {
@@ -198,11 +202,16 @@ static pte_t* kGetNextLevel(pte_t* poTable, QWORD qwIndex, BOOL bAlloc)
 		// 엔트리에는 물리주소가 들어가고(CPU가 걷는다), 내용을 지우는 것은
 		// direct map을 통해 한다
 		kMemSet(__va(qwFrame), 0, PAGE_SIZE);
-		poTable[qwIndex] = qwFrame | PTE_P | PTE_RW;
+		poTable[qwIndex] = qwFrame | PTE_P | PTE_RW | qwUS;
 	}
 	else if(poTable[qwIndex] & PTE_PS) {
 		// 이미 2MB/1GB 페이지로 잡혀 있으면 여기서는 쪼개지 않는다
 		return NULL;
+	}
+	else {
+		// 커널 매핑이 먼저 만들어 둔 테이블 아래에 유저 페이지가 들어오는 경우.
+		// 리프에 US가 없으면 여전히 커널 전용이므로 안전하다
+		poTable[qwIndex] |= qwUS;
 	}
 
 	return (pte_t*)__va(PTE_ADDR(poTable[qwIndex]));
@@ -213,11 +222,11 @@ BOOL kMapPage(QWORD qwCR3, QWORD qwVirtAddr, QWORD qwPhysAddr, QWORD qwFlags)
 {
 	pte_t* poTable = (pte_t*)__va(PTE_ADDR(qwCR3));
 
-	poTable = kGetNextLevel(poTable, PML4_INDEX(qwVirtAddr), TRUE);
+	poTable = kGetNextLevel(poTable, PML4_INDEX(qwVirtAddr), TRUE, qwFlags);
 	if(NULL == poTable) return FALSE;
-	poTable = kGetNextLevel(poTable, PDPT_INDEX(qwVirtAddr), TRUE);
+	poTable = kGetNextLevel(poTable, PDPT_INDEX(qwVirtAddr), TRUE, qwFlags);
 	if(NULL == poTable) return FALSE;
-	poTable = kGetNextLevel(poTable, PD_INDEX(qwVirtAddr), TRUE);
+	poTable = kGetNextLevel(poTable, PD_INDEX(qwVirtAddr), TRUE, qwFlags);
 	if(NULL == poTable) return FALSE;
 
 	if(FALSE == g_bNXSupported) {
@@ -248,11 +257,11 @@ void kUnmapPage(QWORD qwCR3, QWORD qwVirtAddr)
 {
 	pte_t* poTable = (pte_t*)__va(PTE_ADDR(qwCR3));
 
-	poTable = kGetNextLevel(poTable, PML4_INDEX(qwVirtAddr), FALSE);
+	poTable = kGetNextLevel(poTable, PML4_INDEX(qwVirtAddr), FALSE, 0);
 	if(NULL == poTable) return;
-	poTable = kGetNextLevel(poTable, PDPT_INDEX(qwVirtAddr), FALSE);
+	poTable = kGetNextLevel(poTable, PDPT_INDEX(qwVirtAddr), FALSE, 0);
 	if(NULL == poTable) return;
-	poTable = kGetNextLevel(poTable, PD_INDEX(qwVirtAddr), FALSE);
+	poTable = kGetNextLevel(poTable, PD_INDEX(qwVirtAddr), FALSE, 0);
 	if(NULL == poTable) return;
 
 	poTable[PT_INDEX(qwVirtAddr)] = 0;
@@ -272,9 +281,9 @@ static BOOL kMapRange2M(QWORD qwCR3, QWORD qwVirtAddr, QWORD qwPhysAddr,
 	qwSize = ALIGN_UP(qwSize, PAGE_SIZE_2M);
 	for(qwOffset=0; qwOffset<qwSize; qwOffset+=PAGE_SIZE_2M) {
 		poTable = (pte_t*)__va(PTE_ADDR(qwCR3));
-		poTable = kGetNextLevel(poTable, PML4_INDEX(qwVirtAddr + qwOffset), TRUE);
+		poTable = kGetNextLevel(poTable, PML4_INDEX(qwVirtAddr + qwOffset), TRUE, qwFlags);
 		if(NULL == poTable) return FALSE;
-		poPD = kGetNextLevel(poTable, PDPT_INDEX(qwVirtAddr + qwOffset), TRUE);
+		poPD = kGetNextLevel(poTable, PDPT_INDEX(qwVirtAddr + qwOffset), TRUE, qwFlags);
 		if(NULL == poPD) return FALSE;
 
 		poPD[PD_INDEX(qwVirtAddr + qwOffset)] =
@@ -331,9 +340,9 @@ static BOOL kProtectKernelImage(QWORD qwCR3, QWORD qwNXFlag)
 
 	// 완성된 PT로 PDE를 교체
 	poTable = (pte_t*)__va(PTE_ADDR(qwCR3));
-	poTable = kGetNextLevel(poTable, PML4_INDEX(qwBase), TRUE);
+	poTable = kGetNextLevel(poTable, PML4_INDEX(qwBase), TRUE, 0);
 	if(NULL == poTable) return FALSE;
-	poPD = kGetNextLevel(poTable, PDPT_INDEX(qwBase), TRUE);
+	poPD = kGetNextLevel(poTable, PDPT_INDEX(qwBase), TRUE, 0);
 	if(NULL == poPD) return FALSE;
 
 	poPD[PD_INDEX(qwBase)] = PTE_ADDR(qwPTFrame) | PTE_P | PTE_RW;
