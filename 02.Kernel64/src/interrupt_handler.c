@@ -16,6 +16,7 @@
 #include "descriptor.h"
 #include "panic.h"
 #include "vmalloc.h"
+#include "fault.h"
 #include "assembly_utils.h"
 
 
@@ -47,6 +48,14 @@ void kCommonExceptionHandler(int iVectorNum, QWORD qwErrCode, QWORD* pqwFrame)
 	BOOL bHasErrCode;
 
 	kDisableInterrupt();
+
+	// 유저 폴트는 그 태스크만 끝내고 커널은 계속 돈다. 덤프보다 먼저 봐야
+	// 정상적인 유저 오류가 커널 패닉 로그를 남기지 않는다
+	if(14 == iVectorNum) {
+		if(TRUE == kDoPageFault(qwErrCode, kReadCR2(), pqwFrame)) {
+			return;
+		}
+	}
 
 	bHasErrCode = kIsExceptionHasErrCode(iVectorNum);
 	if(FALSE == bHasErrCode) {

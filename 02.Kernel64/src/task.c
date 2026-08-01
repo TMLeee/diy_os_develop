@@ -15,6 +15,9 @@
 #include "paging.h"
 #include "assembly_utils.h"
 
+static void kSwitchAddressSpace(TCB_t* poNext);
+static void kSwitchKernelStack(TCB_t* poNext);
+
 // scheduler
 static Scheduler_t gstScheduler;
 static TcbPoolManager_t gstTCBPoolManager;
@@ -183,6 +186,42 @@ void kFreeTask(TCB_t* poTask)
 }
 
 
+// 자기 자신을 끝낸다. 폴트 핸들러가 iretq 복귀 지점을 여기로 바꿔서 들어온다.
+// 자기 커널 스택 위에서 돌지만 그 스택을 여기서 반납할 수는 없으므로 DEAD로
+// 표시만 하고, 반납은 kEndTask가 대신 한다
+void kExitTask(void)
+{
+	TCB_t* poTask;
+	TCB_t* poNext;
+
+	kSetInterruptFlag(FALSE);
+
+	poTask = gstScheduler.poRunningTask;
+	if(NULL != poTask) {
+		poTask->qwFlag |= TASK_FLAG_DEAD;
+	}
+
+	while(1) {
+		poNext = kGetNextTaskToRun();
+		if(NULL != poNext) {
+			gstScheduler.poRunningTask = poNext;
+			kSwitchAddressSpace(poNext);
+			kSwitchKernelStack(poNext);
+			gstScheduler.iProcessorTime = TASK_PROCESSOR_TIME;
+
+			// 죽은 태스크의 컨텍스트에 저장한다. 다시 읽히는 일은 없다.
+			// ready 리스트에 넣지 않았으므로 여기로 돌아오지 않는다
+			kSwitchContext(&(poTask->tContext), &(poNext->tContext));
+		}
+
+		// 돌릴 태스크가 없으면 인터럽트를 기다린다
+		kSetInterruptFlag(TRUE);
+		kHlt();
+		kSetInterruptFlag(FALSE);
+	}
+}
+
+
 // 현재 태스크를 ready 리스트에서 제외하고 다음으로 넘어간다
 BOOL kEndTask(QWORD qwTaskID)
 {
@@ -200,6 +239,12 @@ BOOL kEndTask(QWORD qwTaskID)
 	}
 	if((NULL == poTarget) || (poTarget == gstScheduler.poRunningTask)) {
 		return FALSE;
+	}
+
+	// 스스로 죽은 태스크는 ready 리스트에 없다. 그때는 바로 반납한다
+	if(0 != (poTarget->qwFlag & TASK_FLAG_DEAD)) {
+		kFreeTask(poTarget);
+		return TRUE;
 	}
 
 	// ready 리스트에서 빼낸다

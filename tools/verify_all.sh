@@ -186,5 +186,17 @@ want "task really was at CPL 3" 'saved CS=23 CPL=3 ring3' "$s"
 want "address space reclaimed"  'free before=[0-9A-F]+ after=[0-9A-F]+ OK' "$s"
 deny "no fault in user mode"    'KERNEL PANIC|Exception Occurred' "$s"
 
+sect "page fault: a bad user program dies alone"
+s=$(CMD_WAIT=6 "$WORK/bootcheck.sh" 'cls' 'usertest bad' 'date' 2>&1)
+want "user reaches ring3 first"  'ring3 about to touch kernel' "$s"
+# present+read from user mode means the U/S check rejected it, not a missing page
+want "SEGV on a kernel address" 'SEGV task [0-9A-F]+ at FFFFFFFF80200000 \(read,prot\) kernel address' "$s"
+want "only that task died"      'task died \(SEGV\)  killed so far=1' "$s"
+want "shell survived the fault" 'ring3 task reaped, shell alive' "$s"
+# the shell taking a command afterwards is the real proof the kernel is intact
+want "shell still takes commands" 'Data: [0-9]+/[0-9]+/[0-9]+' "$s"
+deny "kernel did not panic"     'KERNEL PANIC' "$s"
+want "no frames leaked"         'free before=[0-9A-F]+ after=[0-9A-F]+ OK' "$s"
+
 echo "=============== $pass passed, $fail failed ==============="
 exit $([ "$fail" -eq 0 ] && echo 0 || echo 1)

@@ -46,6 +46,9 @@
 
 #define TASK_MAX_CNT			1024
 
+// qwFlag 비트. 스스로 끝낸 태스크는 ready 리스트에 없으므로 표시가 필요하다
+#define TASK_FLAG_DEAD			0x8000000000000000UL
+
 // 리눅스 THREAD_SIZE와 같은 16KB. 스택마다 아래에 매핑하지 않은 페이지를
 // 한 장 둬서 오버플로가 조용한 손상 대신 #PF가 되게 한다
 #define TASK_STACK_SIZE			16384
@@ -120,6 +123,7 @@ TCB_t* kCreateTask(QWORD qwFlag, QWORD qwEntryPointAddr);
 void kSetTaskMm(TCB_t* poTask, mm_t* poMm);
 TCB_t* kCreateUserTask(mm_t* poMm, QWORD qwEntryAddr, QWORD qwUserStackTop);
 BOOL kEndTask(QWORD qwTaskID);
+void kExitTask(void);
 void kSetupTask(TCB_t* poTCB, QWORD qwFlag, QWORD qwEntryPointAddr,
 	void *poStackAddr, QWORD qwStackSize);
 

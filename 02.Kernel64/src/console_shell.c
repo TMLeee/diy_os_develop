@@ -23,6 +23,7 @@
 #include "syscall.h"
 #include "mm_struct.h"
 #include "descriptor.h"
+#include "fault.h"
 
 
 ShellCmdEntry_t gtCommandTable[] =
@@ -54,7 +55,7 @@ ShellCmdEntry_t gtCommandTable[] =
 		{"syscalltest", "Exercise The int 0x80 Path", kSyscallTest},
 		{"mmtest", "Build A User Address Space And Switch To It", kMmTest},
 		{"cr3test", "Run A Task Bound To Its Own Address Space", kCR3Test},
-		{"usertest", "Load A ring3 Program And Run It", kUserTest}
+		{"usertest", "Run A ring3 Program, ex)usertest [bad]", kUserTest}
 };
 
 
@@ -1175,6 +1176,8 @@ void kCR3Test(const char* poParamBuff)
 // -> 디스패처 -> iretq 경로가 전부 살아 있다는 뜻이다
 extern char kUserStubStart[];
 extern char kUserStubEnd[];
+extern char kUserBadStubStart[];
+extern char kUserBadStubEnd[];
 
 #define USER_CODE_VA	0x400000UL
 #define USER_STACK_PAGES	4
@@ -1186,11 +1189,22 @@ void kUserTest(const char* poParamBuff)
 	QWORD qwCodePhys, vqStackPhys[USER_STACK_PAGES];
 	QWORD qwStackBase, qwStubLen, qwStartTick, qwFreeBefore;
 	void* pvWarm;
-	char vcHex[17];
+	char vcHex[17], vcParam[30];
+	const char* pcStub;
+	ParamList_t stList;
 	int i, iStackGot = 0;
-	BOOL bPrevFlag, bOk = TRUE;
+	BOOL bPrevFlag, bOk = TRUE, bBad = FALSE;
 
-	qwStubLen = (QWORD)(kUserStubEnd - kUserStubStart);
+	// "usertest bad"는 커널 주소를 건드리는 스텁을 올린다. U/S 경계가 서 있으면
+	// 그 태스크만 죽고 셸은 계속 돌아야 한다
+	kInitializeParam(&stList, poParamBuff);
+	if(0 != kGetNextParam(&stList, vcParam)) {
+		bBad = TRUE;
+	}
+
+	pcStub = (TRUE == bBad) ? kUserBadStubStart : kUserStubStart;
+	qwStubLen = (TRUE == bBad) ? (QWORD)(kUserBadStubEnd - kUserBadStubStart)
+							   : (QWORD)(kUserStubEnd - kUserStubStart);
 	if((0 == qwStubLen) || (PAGE_SIZE < qwStubLen)) {
 		kPrintf("stub size %q is not usable\n", qwStubLen);
 		return;
@@ -1224,7 +1238,7 @@ void kUserTest(const char* poParamBuff)
 		return;
 	}
 	kMemSet(__va(qwCodePhys), 0, PAGE_SIZE);
-	kMemCpy(__va(qwCodePhys), kUserStubStart, (int)qwStubLen);
+	kMemCpy(__va(qwCodePhys), pcStub, (int)qwStubLen);
 
 	kVmaCreate(poMm, USER_CODE_VA, USER_CODE_VA + PAGE_SIZE, VM_READ | VM_EXEC);
 	if(FALSE == kMmMapPage(poMm, USER_CODE_VA, qwCodePhys, VM_READ | VM_EXEC)) {
@@ -1281,15 +1295,23 @@ void kUserTest(const char* poParamBuff)
 		}
 
 		// 선점될 때 CPU가 밀어 넣은 CS가 TCB에 저장돼 있다. 0x23이면 그 태스크가
-		// 실제로 ring3에서 돌고 있었다는 증거다 - 출력만으로는 알 수 없다
-		kPrintf("saved CS=%q CPL=%d %s\n",
-				poTask->tContext.vqRegister[TASK_CS_OFFSET],
-				(int)(poTask->tContext.vqRegister[TASK_CS_OFFSET] & 0x03),
-				(GDT_USER_CODE_SELECTOR ==
-					poTask->tContext.vqRegister[TASK_CS_OFFSET]) ? "ring3" : "NOT ring3");
+		// 실제로 ring3에서 돌고 있었다는 증거다 - 출력만으로는 알 수 없다.
+		// bad 스텁은 폴트 핸들러가 복귀 지점을 ring0으로 돌려놓으므로 CS=8이 맞다
+		if(FALSE == bBad) {
+			kPrintf("saved CS=%q CPL=%d %s\n",
+					poTask->tContext.vqRegister[TASK_CS_OFFSET],
+					(int)(poTask->tContext.vqRegister[TASK_CS_OFFSET] & 0x03),
+					(GDT_USER_CODE_SELECTOR ==
+						poTask->tContext.vqRegister[TASK_CS_OFFSET]) ? "ring3" : "NOT ring3");
+		}
 
+		kPrintf("task %s  killed so far=%q\n",
+				(0 != (poTask->qwFlag & TASK_FLAG_DEAD)) ? "died (SEGV)" : "still alive",
+				kGetKilledTaskCount());
+
+		// 스스로 죽었으면 kEndTask가 ready 리스트 대신 DEAD 표시를 보고 반납한다
 		kEndTask(poTask->stLink.qwID);
-		kPrintf("ring3 task ended\n");
+		kPrintf("ring3 task reaped, shell alive\n");
 	}
 
 	// 코드/스택 프레임은 전부 주소공간에 매핑돼 있다. kMmDestroy가 반납한다
