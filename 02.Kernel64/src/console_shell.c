@@ -21,6 +21,7 @@
 #include "vmalloc.h"
 #include "task.h"
 #include "syscall.h"
+#include "mm_struct.h"
 
 
 ShellCmdEntry_t gtCommandTable[] =
@@ -49,7 +50,8 @@ ShellCmdEntry_t gtCommandTable[] =
 		{"stackoverflow", "Deliberate Kernel Stack Overflow", kStackOverflowTest},
 		{"frameinfo", "Show One Frame's State, ex)frameinfo 100000", kShowFrameInfo},
 		{"maptest", "Try kMapPage At A VA, ex)maptest 100000000", kMapTest},
-		{"syscalltest", "Exercise The int 0x80 Path", kSyscallTest}
+		{"syscalltest", "Exercise The int 0x80 Path", kSyscallTest},
+		{"mmtest", "Build A User Address Space And Switch To It", kMmTest}
 };
 
 
@@ -982,4 +984,92 @@ void kSyscallTest(const char* poParamBuff)
 	kPrintf("bad fd     -> %d (want -9)\n", (int)qwRet);
 
 	kPrintf("dispatched %d syscalls\n", (int)(kGetSyscallCount() - qwBefore));
+}
+
+// 유저 주소공간을 하나 만들어 CR3까지 갈아타 본다. 커널 절반 공유가 깨져 있으면
+// mov cr3 다음 명령어에서 죽으므로, 이 명령이 끝까지 출력되는 것 자체가 증거다
+void kMmTest(const char* poParamBuff)
+{
+	mm_t* poMm;
+	vm_area_t* poVma;
+	QWORD qwPhys, qwFreeBefore, qwFreeAfter, qwPrevCR3;
+	volatile QWORD* pqw;
+	pte_t vqEntry[4];
+	char vcHex[17];
+	BOOL bPrevFlag;
+	int i, iUserLevels = 0;
+
+	// slab은 객체가 다 빠져도 빈 슬랩을 캐시에 남긴다. 그래서 mm_t와
+	// vm_area_t를 처음 쓰는 순간 페이지가 두 장 늘어나는데, 그건 누수가
+	// 아니다. 캐시를 먼저 덥혀 놓고 측정해야 숫자가 결정적이 된다
+	poMm = kMmCreate();
+	if(NULL != poMm) {
+		kVmaCreate(poMm, 0x400000, 0x401000, VM_READ);
+		kMmDestroy(poMm);
+	}
+
+	qwFreeBefore = kGetFreePageCount();
+
+	poMm = kMmCreate();
+	if(NULL == poMm) {
+		kPrintf("kMmCreate failed\n");
+		return;
+	}
+	kToHexString(poMm->qwPML4, vcHex, 12);
+	kPrintf("mm created pml4=%s mms=%q\n", vcHex, kGetMmCount());
+
+	// VMA: 정렬 삽입, 조회, 겹침 거절
+	kVmaCreate(poMm, 0x400000, 0x401000, VM_READ | VM_WRITE);
+	kVmaCreate(poMm, 0x600000, 0x602000, VM_READ | VM_EXEC);
+	poVma = kVmaFind(poMm, 0x400500);
+	kPrintf("vma find hit=%s miss=%s overlap=%s count=%d\n",
+			((NULL != poVma) && (0x400000 == poVma->qwStart)) ? "OK" : "BAD",
+			(NULL == kVmaFind(poMm, 0x3FF000)) ? "OK" : "BAD",
+			(NULL == kVmaCreate(poMm, 0x400800, 0x402000, VM_READ)) ? "rejected" : "ACCEPTED",
+			poMm->iVmaCount);
+
+	qwPhys = kAllocPage();
+	if(0 == qwPhys) {
+		kPrintf("alloc failed\n");
+		kMmDestroy(poMm);
+		return;
+	}
+	if(FALSE == kMmMapPage(poMm, 0x400000, qwPhys, VM_READ | VM_WRITE)) {
+		kPrintf("kMmMapPage failed\n");
+		kFreePage(qwPhys);
+		kMmDestroy(poMm);
+		return;
+	}
+
+	if(PG_LEVEL_4K == kWalkPageTable(poMm->qwPML4, 0x400000, vqEntry)) {
+		for(i=0; i<4; ++i) {
+			if(0 != (vqEntry[i] & PTE_US)) {
+				++iUserLevels;
+			}
+		}
+	}
+	kPrintf("US levels %d/4\n", iUserLevels);
+
+	// CR3를 바꾸는 동안 선점되면 다른 태스크가 이 주소공간에서 돈다
+	bPrevFlag = kSetInterruptFlag(FALSE);
+	qwPrevCR3 = kReadCR3();
+	kWriteCR3(poMm->qwPML4);
+
+	pqw = (volatile QWORD*)0x400000UL;
+	*pqw = 0x5EE0FF1CE0000001;
+
+	kWriteCR3(qwPrevCR3);
+	kSetInterruptFlag(bPrevFlag);
+
+	// 유저 VA로 쓴 값이 정말 그 프레임에 들어갔는지 direct map으로 확인한다
+	kPrintf("user write via CR3 switch: %s\n",
+			(0x5EE0FF1CE0000001 == *(volatile QWORD*)__va(qwPhys)) ? "OK" : "MISMATCH");
+
+	kFreePage(qwPhys);
+	kMmDestroy(poMm);
+
+	qwFreeAfter = kGetFreePageCount();
+	kPrintf("mm destroyed mms=%q free before=%q after=%q %s\n",
+			kGetMmCount(), qwFreeBefore, qwFreeAfter,
+			(qwFreeBefore == qwFreeAfter) ? "OK" : "LEAK");
 }

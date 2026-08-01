@@ -157,5 +157,15 @@ want "kernel map stays supervisor" 'US levels 0/4 \(want 0\)' "$s"
 # x86-64 ANDs U/S across all four levels, so a leaf-only US is unreachable
 want "US reaches every level"    'US levels 4/4 \(want 4\)' "$s"
 
+sect "process address space: mm_struct and VMAs"
+s=$(CMD_WAIT=4 "$WORK/bootcheck.sh" 'cls' 'mmtest' 2>&1)
+want "mm allocates a PML4"       'mm created pml4=[0-9A-F]+ mms=1' "$s"
+want "VMA insert/find/overlap"   'vma find hit=OK miss=OK overlap=rejected count=2' "$s"
+want "user page is US at all 4"  'US levels 4/4' "$s"
+# surviving mov cr3 at all proves the kernel half is shared into the new PML4
+want "write through a switched CR3" 'user write via CR3 switch: OK' "$s"
+want "address space fully freed" 'mm destroyed mms=0 .* OK' "$s"
+deny "no frames leaked"          'LEAK' "$s"
+
 echo "=============== $pass passed, $fail failed ==============="
 exit $([ "$fail" -eq 0 ] && echo 0 || echo 1)
