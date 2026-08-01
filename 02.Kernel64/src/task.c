@@ -275,7 +275,8 @@ BOOL kScheduleInInterrunt(void)
 	}
 
 	// Switch Task
-	pcContextAddr = (char*)IST_START_ADDR + IST_SIZE - sizeof(Context_t);
+	// IST 스택은 direct map으로 만진다. TSS에 넣은 값과 같은 별칭이어야 한다
+	pcContextAddr = (char*)__va(IST_START_ADDR + IST_SIZE) - sizeof(Context_t);
 
 	poRunningTask = gstScheduler.poRunningTask;
 	kMemCpy(&(poRunningTask->tContext), pcContextAddr, sizeof(Context_t));

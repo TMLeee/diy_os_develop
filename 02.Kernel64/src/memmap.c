@@ -9,6 +9,7 @@
 
 #include "memmap.h"
 #include "console.h"
+#include "paging.h"
 #include "utility.h"
 
 
@@ -79,7 +80,7 @@ static void kMergeMemMap(void)
 
 BOOL kInitializeMemoryMap(void)
 {
-	BootInfo_t* poBootInfo = (BootInfo_t*)BOOTINFO_ADDR;
+	BootInfo_t* poBootInfo = (BootInfo_t*)__va(BOOTINFO_ADDR);
 	int i, iCount;
 	QWORD qwEnd;
 

@@ -50,7 +50,7 @@ void main(void)
 	kGetCursor(&iCursorX, &iCursorY);
 	kPrintf("Initializing GDT....................[    ]\n");
 	kInitGDTTableAndTSS();
-	kLoadGDTR(GDTR_START_ADDR);
+	kLoadGDTR((QWORD)__va(GDTR_START_ADDR));
 	kSetCursor(37, iCursorY++);
 	kPrintf(" OK \n");
 
@@ -62,7 +62,7 @@ void main(void)
 
 	kPrintf("Initializing IDT ...................[    ]\n");
 	kInitTDTTable();
-	kLoadIDTR(IDTR_START_ADDR);
+	kLoadIDTR((QWORD)__va(IDTR_START_ADDR));
 	kSetCursor(37, iCursorY++);
 	kPrintf(" OK \n");
 

@@ -8,6 +8,7 @@
 
 #include "descriptor.h"
 #include "utility.h"
+#include "paging.h"
 #include "isr.h"
 
 
@@ -30,8 +31,8 @@ void kInitGDTTableAndTSS(void)
 	TSSSegment_t* poTSS;
 
 	// GDTR 설정
-	poGDTR = (GDTR*) GDTR_START_ADDR;
-	poEntry = (GDTEntry8_t*) (GDTR_START_ADDR + sizeof(GDTR));
+	poGDTR = (GDTR*) __va(GDTR_START_ADDR);
+	poEntry = (GDTEntry8_t*) __va(GDTR_START_ADDR + sizeof(GDTR));
 	poGDTR->wLimit = GDT_TBL_SIZE - 1;
 	poGDTR->qwBaseAddr = (QWORD)poEntry;
 
@@ -39,8 +40,8 @@ void kInitGDTTableAndTSS(void)
 	poTSS = (TSSSegment_t*) ((QWORD)poEntry + GDT_TBL_SIZE);
 
 	// NULL, KCode, KData, UData, UCode, TSS
-	// poTSS는 물리주소(GDTR_START_ADDR=0x142000)이고 identity 매핑이므로
-	// 디스크립터 베이스에 그대로 넣는다. __va()/__pa()를 끼우면 안 된다
+	// poTSS는 direct map 주소다. TSS 디스크립터의 베이스는 CPU가 쓰는
+	// 가상주소이므로 그게 맞다(물리를 넣으면 안 된다)
 	kSetGDTEntry8(&(poEntry[0]), 0, 0, 0, 0, 0);
 	kSetGDTEntry8(&(poEntry[1]), 0, 0xFFFFF, GDT_FLAG_UPPER_CODE, GDT_FLAG_LOWER_KERNELCODE, GDT_TYPE_CODE);
 	kSetGDTEntry8(&(poEntry[2]), 0, 0xFFFFF, GDT_FLAG_UPPER_DATA, GDT_FLAG_LOWER_KERNELDATA, GDT_TYPE_DATA);
@@ -88,7 +89,8 @@ void kSetGDTEntry16(GDTEntry16_t *poEntry, QWORD qwBaseAddr, DWORD dwLimit,
 void kInitTSSSegment(TSSSegment_t *poTSS)
 {
 	kMemSet(poTSS, 0, sizeof(TSSSegment_t));
-	poTSS->qwIST[0] = IST_START_ADDR + IST_SIZE;
+	// IST는 CPU가 RSP로 적재하는 값이므로 가상주소여야 한다
+	poTSS->qwIST[0] = (QWORD)__va(IST_START_ADDR + IST_SIZE);
 
 	// IO 영역 침범 방지 - TSS의 리밋보다 크게
 	poTSS->wIOMapBaseAddr = 0xFFFF;
@@ -102,10 +104,10 @@ void kInitTDTTable(void)
 	int i;
 
 	// IDTR 시작 주소
-	poIDTR = (IDTR*) IDTR_START_ADDR;
+	poIDTR = (IDTR*) __va(IDTR_START_ADDR);
 
 	// IDTR 테이블 정보 설정
-	poEntry = (IDTEntry_t*)(IDTR_START_ADDR + sizeof(IDTR));
+	poEntry = (IDTEntry_t*)__va(IDTR_START_ADDR + sizeof(IDTR));
 	poIDTR->qwBaseAddr = (QWORD)poEntry;
 	poIDTR->wLimit = IDT_TBL_SIZE - 1;
 
