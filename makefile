@@ -1,4 +1,4 @@
-all: Bootloader Kernel32 Kernel64 Utility Disk.img
+all: Bootloader Kernel32 Utility Application Kernel64 Disk.img
 
 Bootloader:
 	@echo 
@@ -22,6 +22,22 @@ Kernel32:
 	@echo =============== Build Complete ===============
 	@echo 
 	
+# 유저 프로그램을 빌드해서 커널 .rodata에 박는다. 디스크 드라이버도 FS도 없어서
+# 이게 유저 바이너리를 커널에 들여보내는 유일한 길이다.
+# Kernel64보다 먼저 돌아야 user_app.c가 컴파일 대상에 들어간다
+Application:
+	@echo 
+	@echo ============= Build Application ==============
+	@echo 
+	
+	make -C 03.Application/00.HelloWorld
+	04.Utility/01.Bin2C/Bin2C.exe 03.Application/00.HelloWorld/hello.elf \
+			02.Kernel64/src/user_app.c HelloApp
+	
+	@echo 
+	@echo =============== Build Complete ===============
+	@echo 
+
 Kernel64:
 	@echo 
 	@echo ============== Build Kernel64 ===============

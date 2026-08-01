@@ -73,6 +73,7 @@ void kSyscallTest(const char* poParamBuff);
 void kMmTest(const char* poParamBuff);
 void kCR3Test(const char* poParamBuff);
 void kUserTest(const char* poParamBuff);
+void kExec(const char* poParamBuff);
 
 
 #endif /* 02_KERNEL64_SRC_CONSOLE_SHELL_H_ */

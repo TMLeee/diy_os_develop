@@ -24,6 +24,7 @@
 #include "mm_struct.h"
 #include "descriptor.h"
 #include "fault.h"
+#include "elf.h"
 
 
 ShellCmdEntry_t gtCommandTable[] =
@@ -55,7 +56,8 @@ ShellCmdEntry_t gtCommandTable[] =
 		{"syscalltest", "Exercise The int 0x80 Path", kSyscallTest},
 		{"mmtest", "Build A User Address Space And Switch To It", kMmTest},
 		{"cr3test", "Run A Task Bound To Its Own Address Space", kCR3Test},
-		{"usertest", "Run A ring3 Program, ex)usertest [bad|demand|fork]", kUserTest}
+		{"usertest", "Run A ring3 Program, ex)usertest [bad|demand|fork]", kUserTest},
+		{"exec", "Load The Embedded ELF And Run It In ring3", kExec}
 };
 
 
@@ -1373,6 +1375,88 @@ void kUserTest(const char* poParamBuff)
 		kMmDestroy(poMm);
 	}
 
+	kPrintf("free before=%q after=%q %s\n", qwFreeBefore, kGetFreePageCount(),
+			(qwFreeBefore == kGetFreePageCount()) ? "OK" : "LEAK");
+}
+
+// Bin2C가 03.Application/00.HelloWorld/hello.elf를 커널 .rodata에 박아 둔다
+extern const BYTE g_vHelloApp[];
+extern const QWORD g_qwHelloAppSize;
+
+void kExec(const char* poParamBuff)
+{
+	mm_t* poMm;
+	TCB_t* poTask = NULL;
+	QWORD qwEntry, qwStackBase, qwFreeBefore, qwStartTick;
+	char vcHex[17];
+	void* pvWarm;
+	BOOL bPrevFlag;
+
+	if(FALSE == kElfIsValid(g_vHelloApp, g_qwHelloAppSize)) {
+		kPrintf("embedded image is not a usable ELF64\n");
+		return;
+	}
+	kUIToDecString(g_qwHelloAppSize, vcHex);
+	kPrintf("ELF64 EXEC x86-64, %s bytes\n", vcHex);
+
+	// mmtest와 같은 이유로 일회성 증가분을 먼저 소화한다. vm_area_t 슬랩까지
+	// 덥혀야 한다 - VMA를 처음 만드는 순간 kmalloc-32가 한 장 늘어난다
+	poMm = kMmCreate();
+	if(NULL != poMm) {
+		kVmaCreate(poMm, 0x400000, 0x401000, VM_READ);
+		kMmDestroy(poMm);
+	}
+	pvWarm = kVmapPages(TASK_STACK_PAGES, 1, 0);
+	if(NULL != pvWarm) {
+		kVfree(pvWarm);
+	}
+	qwFreeBefore = kGetFreePageCount();
+
+	poMm = kMmCreate();
+	if(NULL == poMm) {
+		kPrintf("kMmCreate failed\n");
+		return;
+	}
+
+	qwEntry = kElfLoad(poMm, g_vHelloApp, g_qwHelloAppSize);
+	if(0 == qwEntry) {
+		kPrintf("kElfLoad failed\n");
+		kMmDestroy(poMm);
+		return;
+	}
+
+	kToHexString(qwEntry, vcHex, 8);
+	kPrintf("entry=%s ", vcHex);
+	kToHexString(poMm->qwCodeStart, vcHex, 8);
+	kPrintf("image=%s..", vcHex);
+	kToHexString(poMm->qwCodeEnd, vcHex, 8);
+	kPrintf("%s vmas=%d\n", vcHex, poMm->iVmaCount);
+
+	// 스택은 VMA만 잡는다. 첫 push가 폴트로 채운다
+	qwStackBase = USER_STACK_TOP - ((QWORD)USER_STACK_PAGES * PAGE_SIZE);
+	if(NULL == kVmaCreate(poMm, qwStackBase, USER_STACK_TOP,
+						VM_READ | VM_WRITE | VM_GROWSDOWN)) {
+		kPrintf("stack VMA failed\n");
+		kMmDestroy(poMm);
+		return;
+	}
+
+	bPrevFlag = kSetInterruptFlag(FALSE);
+	poTask = kCreateUserTask(poMm, qwEntry, USER_STACK_TOP);
+	kSetInterruptFlag(bPrevFlag);
+
+	if(NULL == poTask) {
+		kPrintf("kCreateUserTask failed\n");
+		kMmDestroy(poMm);
+		return;
+	}
+
+	qwStartTick = g_qwTickCount;
+	while((g_qwTickCount - qwStartTick) < 150) {
+		kSchedule();
+	}
+
+	kPrintf("reaped %d user task(s), shell alive\n", kEndAllUserTasks());
 	kPrintf("free before=%q after=%q %s\n", qwFreeBefore, kGetFreePageCount(),
 			(qwFreeBefore == kGetFreePageCount()) ? "OK" : "LEAK");
 }

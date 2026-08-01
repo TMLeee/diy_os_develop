@@ -224,5 +224,19 @@ want "no frames leaked"         'free before=[0-9A-F]+ after=[0-9A-F]+ OK' "$s"
 want "shell still takes commands" 'Data: [0-9]+/[0-9]+/[0-9]+' "$s"
 deny "no fault escaped"         'SEGV|KERNEL PANIC' "$s"
 
+sect "ELF loader: a separately built program in ring 3"
+s=$(CMD_WAIT=6 "$WORK/bootcheck.sh" 'cls' 'exec' 'date' 2>&1)
+want "embedded image parses"    'ELF64 EXEC x86-64, [0-9]+ bytes' "$s"
+want "segments become VMAs"     'entry=00400029 image=00400000\.\.[0-9A-F]+ vmas=3' "$s"
+# printed by a program compiled and linked outside the kernel tree
+want "user program ran"         'hello from a real ELF' "$s"
+# memsz > filesz, so this page never came from the file - the fault handler made it
+want ".bss arrives zeroed"      'bss is zeroed' "$s"
+want ".bss is writable"         'bss is writable' "$s"
+want "syscall result reached it" 'pid=0x[0-9A-F]+' "$s"
+want "no frames leaked"         'free before=[0-9A-F]+ after=[0-9A-F]+ OK' "$s"
+want "shell still takes commands" 'Data: [0-9]+/[0-9]+/[0-9]+' "$s"
+deny "no fault escaped"         'SEGV|KERNEL PANIC' "$s"
+
 echo "=============== $pass passed, $fail failed ==============="
 exit $([ "$fail" -eq 0 ] && echo 0 || echo 1)
