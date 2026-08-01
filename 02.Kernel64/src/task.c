@@ -12,6 +12,7 @@
 #include "pmm.h"
 #include "mm.h"
 #include "vmalloc.h"
+#include "paging.h"
 
 // scheduler
 static Scheduler_t gstScheduler;
@@ -39,8 +40,9 @@ BOOL kInitializeTCBPool(void)
 		return FALSE;
 	}
 
-	gstTCBPoolManager.poStartAddr = (TCB_t*)qwTCBAddr;
-	kMemSet((void*)qwTCBAddr, 0, (int)(sizeof(TCB_t) * TASK_MAX_CNT));
+	// TCB 풀은 프레임이다. direct map으로 접근한다
+	gstTCBPoolManager.poStartAddr = (TCB_t*)__va(qwTCBAddr);
+	kMemSet(__va(qwTCBAddr), 0, (int)(sizeof(TCB_t) * TASK_MAX_CNT));
 
 	for(i=0; i<TASK_MAX_CNT; ++i) {
 		gstTCBPoolManager.poStartAddr[i].stLink.qwID = i;

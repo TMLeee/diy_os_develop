@@ -58,17 +58,18 @@ static slab_t* kSlabGrow(kmem_cache_t* poCache)
 		return NULL;
 	}
 
-	poSlab = (slab_t*)qwPhys;
+	// slab 머리와 객체 배열은 프레임 안에 있다. direct map으로 만진다
+	poSlab = (slab_t*)__va(qwPhys);
 	kMemSet(poSlab, 0, sizeof(slab_t));
 	kListInit(&(poSlab->stLink));
 	poSlab->poCache = poCache;
-	poSlab->qwPhysBase = qwPhys;
+	poSlab->qwPhysBase = qwPhys;		// 물리. 객체 주소 계산의 기준
 	poSlab->qwFreeCount = poCache->iObjsPerSlab;
 	poSlab->qwFirstFree = 0;
 
 	// 프리 리스트를 객체 안에 심어 둔다(각 객체의 첫 QWORD가 다음 인덱스)
 	for(qwIndex=0; qwIndex<(QWORD)poCache->iObjsPerSlab; ++qwIndex) {
-		*(QWORD*)(qwPhys + kSlabObjOffset(poSlab, qwIndex)) =
+		*(QWORD*)((QWORD)__va(qwPhys) + kSlabObjOffset(poSlab, qwIndex)) =
 				(qwIndex + 1 < (QWORD)poCache->iObjsPerSlab) ? (qwIndex + 1) : SLAB_NO_FREE;
 	}
 
@@ -194,7 +195,9 @@ void* kKmemCacheAlloc(kmem_cache_t* poCache)
 	if(SLAB_NO_FREE == qwIndex) {
 		return NULL;
 	}
-	qwAddr = poSlab->qwPhysBase + kSlabObjOffset(poSlab, qwIndex);
+	// 호출자에게 주는 주소는 가상이어야 한다. 내부 계산은 물리 기준이므로
+	// 오프셋을 구한 뒤 direct map으로 옮긴다
+	qwAddr = (QWORD)__va(poSlab->qwPhysBase + kSlabObjOffset(poSlab, qwIndex));
 	poSlab->qwFirstFree = *(QWORD*)qwAddr;
 	--poSlab->qwFreeCount;
 	++poCache->qwNumActive;
@@ -228,23 +231,24 @@ void kKmemCacheFree(kmem_cache_t* poCache, void* pvObj)
 	if((NULL == poPage) || (0 == (poPage->qwFlags & PG_SLAB))) {
 		return;
 	}
-	poSlab = (slab_t*)poPage->pvPrivate;
+	poSlab = (slab_t*)poPage->pvPrivate;		// kSlabGrow가 넣은 direct map 주소
 	if((NULL == poSlab) || (poSlab->poCache != poCache)) {
 		return;
 	}
 
 	qwHeader = ALIGN_UP(sizeof(slab_t), poCache->qwAlign);
+	// qwAddr은 위에서 __pa()로 정규화했으므로 qwPhysBase와 같은 물리 기준이다
 	qwIndex = (qwAddr - poSlab->qwPhysBase - qwHeader) / poCache->qwObjSize;
 	if(qwIndex >= (QWORD)poCache->iObjsPerSlab) {
 		return;
 	}
 
 #if SLAB_DEBUG
-	kMemSet((void*)qwAddr, SLAB_POISON_FREE, (int)poCache->qwObjSize);
+	kMemSet(__va(qwAddr), SLAB_POISON_FREE, (int)poCache->qwObjSize);
 #endif
 
 	bWasFull = (0 == poSlab->qwFreeCount) ? TRUE : FALSE;
-	*(QWORD*)qwAddr = poSlab->qwFirstFree;
+	*(QWORD*)__va(qwAddr) = poSlab->qwFirstFree;
 	poSlab->qwFirstFree = qwIndex;
 	++poSlab->qwFreeCount;
 	--poCache->qwNumActive;
@@ -292,7 +296,7 @@ void* kmalloc(QWORD qwSize)
 		poPage->iOrder = iOrder;
 		poPage->pvPrivate = NULL;		// PG_SLAB이 없으므로 kfree가 구분한다
 	}
-	return (void*)qwPhys;
+	return __va(qwPhys);
 }
 
 
