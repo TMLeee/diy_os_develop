@@ -21,10 +21,12 @@ START:
 	mov fs, ax
 	mov gs, ax
 
-	; 스택 지정: 0x600000 - 0x6FFFFF (identity 별칭. 아직 살아 있다)
+	; 스택 지정: 물리 0x600000 - 0x6FFFFF 를 direct map 별칭으로 잡는다.
+	; identity 별칭을 쓰면 kInitializePaging 이 identity 를 걷어내는 순간
+	; mov cr3 직후 첫 스택 접근에서 죽는다. 부트 테이블에 PML4[256]이 있다
 	mov ss, ax
-	mov rsp, 0x6FFFF8
-	mov rbp, 0x6FFFF8
+	mov rsp, strict qword 0xFFFF8000006FFFF8
+	mov rbp, rsp
 	
 	; main 함수 호출
 	call main
