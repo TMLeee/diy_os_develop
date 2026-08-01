@@ -68,14 +68,14 @@ int kWalkPageTable(QWORD qwCR3, QWORD qwVirtAddr, pte_t* pvqEntry)
 	}
 
 	// identity 매핑이므로 테이블의 물리주소를 그대로 참조할 수 있다
-	poTable = (pte_t*)PTE_ADDR(qwCR3);
+	poTable = (pte_t*)__va(PTE_ADDR(qwCR3));
 	qwEntry = poTable[PML4_INDEX(qwVirtAddr)];
 	pvqEntry[0] = qwEntry;
 	if(0 == (qwEntry & PTE_P)) {
 		return PG_LEVEL_NONE;
 	}
 
-	poTable = (pte_t*)PTE_ADDR(qwEntry);
+	poTable = (pte_t*)__va(PTE_ADDR(qwEntry));
 	qwEntry = poTable[PDPT_INDEX(qwVirtAddr)];
 	pvqEntry[1] = qwEntry;
 	if(0 == (qwEntry & PTE_P)) {
@@ -85,7 +85,7 @@ int kWalkPageTable(QWORD qwCR3, QWORD qwVirtAddr, pte_t* pvqEntry)
 		return PG_LEVEL_1G;
 	}
 
-	poTable = (pte_t*)PTE_ADDR(qwEntry);
+	poTable = (pte_t*)__va(PTE_ADDR(qwEntry));
 	qwEntry = poTable[PD_INDEX(qwVirtAddr)];
 	pvqEntry[2] = qwEntry;
 	if(0 == (qwEntry & PTE_P)) {
@@ -95,7 +95,7 @@ int kWalkPageTable(QWORD qwCR3, QWORD qwVirtAddr, pte_t* pvqEntry)
 		return PG_LEVEL_2M;
 	}
 
-	poTable = (pte_t*)PTE_ADDR(qwEntry);
+	poTable = (pte_t*)__va(PTE_ADDR(qwEntry));
 	qwEntry = poTable[PT_INDEX(qwVirtAddr)];
 	pvqEntry[3] = qwEntry;
 	if(0 == (qwEntry & PTE_P)) {
@@ -195,7 +195,9 @@ static pte_t* kGetNextLevel(pte_t* poTable, QWORD qwIndex, BOOL bAlloc)
 		if(0 == qwFrame) {
 			return NULL;
 		}
-		kMemSet((void*)qwFrame, 0, PAGE_SIZE);
+		// 엔트리에는 물리주소가 들어가고(CPU가 걷는다), 내용을 지우는 것은
+		// direct map을 통해 한다
+		kMemSet(__va(qwFrame), 0, PAGE_SIZE);
 		poTable[qwIndex] = qwFrame | PTE_P | PTE_RW;
 	}
 	else if(poTable[qwIndex] & PTE_PS) {
@@ -203,13 +205,13 @@ static pte_t* kGetNextLevel(pte_t* poTable, QWORD qwIndex, BOOL bAlloc)
 		return NULL;
 	}
 
-	return (pte_t*)PTE_ADDR(poTable[qwIndex]);
+	return (pte_t*)__va(PTE_ADDR(poTable[qwIndex]));
 }
 
 
 BOOL kMapPage(QWORD qwCR3, QWORD qwVirtAddr, QWORD qwPhysAddr, QWORD qwFlags)
 {
-	pte_t* poTable = (pte_t*)PTE_ADDR(qwCR3);
+	pte_t* poTable = (pte_t*)__va(PTE_ADDR(qwCR3));
 
 	poTable = kGetNextLevel(poTable, PML4_INDEX(qwVirtAddr), TRUE);
 	if(NULL == poTable) return FALSE;
@@ -244,7 +246,7 @@ BOOL kMapRange(QWORD qwCR3, QWORD qwVirtAddr, QWORD qwPhysAddr,
 
 void kUnmapPage(QWORD qwCR3, QWORD qwVirtAddr)
 {
-	pte_t* poTable = (pte_t*)PTE_ADDR(qwCR3);
+	pte_t* poTable = (pte_t*)__va(PTE_ADDR(qwCR3));
 
 	poTable = kGetNextLevel(poTable, PML4_INDEX(qwVirtAddr), FALSE);
 	if(NULL == poTable) return;
@@ -269,7 +271,7 @@ static BOOL kMapRange2M(QWORD qwCR3, QWORD qwVirtAddr, QWORD qwPhysAddr,
 
 	qwSize = ALIGN_UP(qwSize, PAGE_SIZE_2M);
 	for(qwOffset=0; qwOffset<qwSize; qwOffset+=PAGE_SIZE_2M) {
-		poTable = (pte_t*)PTE_ADDR(qwCR3);
+		poTable = (pte_t*)__va(PTE_ADDR(qwCR3));
 		poTable = kGetNextLevel(poTable, PML4_INDEX(qwVirtAddr + qwOffset), TRUE);
 		if(NULL == poTable) return FALSE;
 		poPD = kGetNextLevel(poTable, PDPT_INDEX(qwVirtAddr + qwOffset), TRUE);
@@ -306,7 +308,7 @@ static BOOL kProtectKernelImage(QWORD qwCR3, QWORD qwNXFlag)
 	if(0 == qwPTFrame) {
 		return FALSE;
 	}
-	poPT = (pte_t*)qwPTFrame;
+	poPT = (pte_t*)__va(qwPTFrame);
 
 	// 코드가 실제로 실행되는 별칭은 고주소 쪽이다. 그쪽을 쪼갠다
 	qwBase = KERNEL_VMA + KERNEL_PHYS_BASE;
@@ -328,7 +330,7 @@ static BOOL kProtectKernelImage(QWORD qwCR3, QWORD qwNXFlag)
 	}
 
 	// 완성된 PT로 PDE를 교체
-	poTable = (pte_t*)PTE_ADDR(qwCR3);
+	poTable = (pte_t*)__va(PTE_ADDR(qwCR3));
 	poTable = kGetNextLevel(poTable, PML4_INDEX(qwBase), TRUE);
 	if(NULL == poTable) return FALSE;
 	poPD = kGetNextLevel(poTable, PDPT_INDEX(qwBase), TRUE);
@@ -365,7 +367,7 @@ BOOL kInitializePaging(void)
 	if(0 == qwPML4) {
 		return FALSE;
 	}
-	kMemSet((void*)qwPML4, 0, PAGE_SIZE);
+	kMemSet(__va(qwPML4), 0, PAGE_SIZE);
 
 	// 1) RAM 전체를 identity 매핑한다. 0xB8000, 0x700000 IST, 0x800000 TCB 풀 등
 	//    하드코딩된 물리주소가 전부 그대로 동작해야 하므로 반드시 전 범위

@@ -581,7 +581,7 @@ void kPageProtTest(const char* poParamBuff)
 			kPrintf("%s: NOT 4KB\n", vpcSect[i]);
 			continue;
 		}
-		kToHexString(vqProbe[i], vcHex, 12);
+		kToHexString(vqProbe[i], vcHex, 16);   // higher-half 주소라 12자리로는 잘린다
 		kPrintf("%s at %s: %s%s\n", vpcSect[i], vcHex,
 				(vqEntry[3] & PTE_RW) ? "RW" : "RO",
 				(vqEntry[3] & PTE_NX) ? "+NX" : "+X");
