@@ -11,6 +11,7 @@
 #include "assembly_utils.h"
 #include "pmm.h"
 #include "memmap.h"
+#include "vmalloc.h"
 
 
 static QWORD g_qwKernelCR3 = 0;
@@ -350,6 +351,28 @@ static BOOL kProtectKernelImage(QWORD qwCR3, QWORD qwNXFlag)
 }
 
 
+// PML4 엔트리 하나가 덮는 범위
+#define PML4_SPAN	(1UL << 39)
+
+
+// vmalloc 매핑은 부팅이 끝난 뒤 처음 생긴다. 그때 PML4 엔트리가 새로 만들어지면
+// 이미 커널 절반을 복사해 간 주소공간에는 반영되지 않는다(리눅스가
+// sync_global_pgds로 푸는 문제). 엔트리를 미리 다 만들어 두면 이후로는 PDPT
+// 아래로만 자라고, 그 PDPT는 복사된 엔트리가 가리키는 같은 프레임이라 공유된다
+static BOOL kPreallocKernelPML4(QWORD qwPML4)
+{
+	pte_t* poTable = (pte_t*)__va(PTE_ADDR(qwPML4));
+	QWORD qwVA;
+
+	for(qwVA = VMALLOC_START; qwVA < VMALLOC_END; qwVA += PML4_SPAN) {
+		if(NULL == kGetNextLevel(poTable, PML4_INDEX(qwVA), TRUE, 0)) {
+			return FALSE;
+		}
+	}
+	return TRUE;
+}
+
+
 BOOL kInitializePaging(void)
 {
 	QWORD qwPML4, qwHighest, qwNXFlag;
@@ -396,6 +419,11 @@ BOOL kInitializePaging(void)
 
 	// 4) 그 2MB를 4KB로 쪼개고 섹션별 권한을 적용한다
 	if(FALSE == kProtectKernelImage(qwPML4, qwNXFlag)) {
+		return FALSE;
+	}
+
+	// 5) 커널 절반의 PML4 엔트리를 여기서 전부 확정한다
+	if(FALSE == kPreallocKernelPML4(qwPML4)) {
 		return FALSE;
 	}
 

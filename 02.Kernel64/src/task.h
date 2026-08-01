@@ -12,6 +12,7 @@
 #include "types.h"
 #include "list.h"
 #include "mm.h"
+#include "mm_struct.h"
 
 
 #define TASK_REGISTER_COUNT		(5 + 19)
@@ -80,6 +81,10 @@ typedef struct kTaskControlBlockStruct{
 	// Stack Address, Size
 	void* pvStackAddr;
 	QWORD qwStackSize;
+
+	// 주소공간. 커널 스레드는 둘 다 0이고 현재 CR3를 그대로 빌려 쓴다
+	mm_t* poMM;
+	QWORD qwCR3;
 }TCB_t;
 
 
@@ -112,6 +117,8 @@ BOOL kInitializeTCBPool(void);
 TCB_t *kAllocateTCB(void);
 void kFreeTCB(QWORD qwID);
 TCB_t* kCreateTask(QWORD qwFlag, QWORD qwEntryPointAddr);
+void kSetTaskMm(TCB_t* poTask, mm_t* poMm);
+BOOL kEndTask(QWORD qwTaskID);
 void kSetupTask(TCB_t* poTCB, QWORD qwFlag, QWORD qwEntryPointAddr,
 	void *poStackAddr, QWORD qwStackSize);
 

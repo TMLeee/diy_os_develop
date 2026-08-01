@@ -167,5 +167,14 @@ want "write through a switched CR3" 'user write via CR3 switch: OK' "$s"
 want "address space fully freed" 'mm destroyed mms=0 .* OK' "$s"
 deny "no frames leaked"          'LEAK' "$s"
 
+sect "per-task address space: CR3 follows the context switch"
+s=$(CMD_WAIT=5 "$WORK/bootcheck.sh" 'cls' 'cr3test' 2>&1)
+want "task runs on its own CR3"  'task cr3=[0-9A-F]+ want=[0-9A-F]+ OK' "$s"
+# the VA is mapped only in that mm, so reading it proves the switch happened
+want "task reads its private VA" 'task read private VA: OK' "$s"
+want "kernel thread borrows CR3" 'shell borrowed mm cr3: yes' "$s"
+want "destroy restores kernel CR3" 'after destroy cr3 is kernel: OK' "$s"
+deny "no fault during the switch" 'KERNEL PANIC|Exception Occurred' "$s"
+
 echo "=============== $pass passed, $fail failed ==============="
 exit $([ "$fail" -eq 0 ] && echo 0 || echo 1)

@@ -51,7 +51,8 @@ ShellCmdEntry_t gtCommandTable[] =
 		{"frameinfo", "Show One Frame's State, ex)frameinfo 100000", kShowFrameInfo},
 		{"maptest", "Try kMapPage At A VA, ex)maptest 100000000", kMapTest},
 		{"syscalltest", "Exercise The int 0x80 Path", kSyscallTest},
-		{"mmtest", "Build A User Address Space And Switch To It", kMmTest}
+		{"mmtest", "Build A User Address Space And Switch To It", kMmTest},
+		{"cr3test", "Run A Task Bound To Its Own Address Space", kCR3Test}
 };
 
 
@@ -1072,4 +1073,97 @@ void kMmTest(const char* poParamBuff)
 	kPrintf("mm destroyed mms=%q free before=%q after=%q %s\n",
 			kGetMmCount(), qwFreeBefore, qwFreeAfter,
 			(qwFreeBefore == qwFreeAfter) ? "OK" : "LEAK");
+}
+
+// cr3test가 띄우는 태스크. 0x400000은 이 태스크의 주소공간에만 매핑돼 있으므로,
+// 컨텍스트 전환이 CR3를 따라오지 않으면 여기서 #PF가 나고 패닉으로 드러난다
+static volatile QWORD g_qwCR3TestValue = 0;
+static volatile QWORD g_qwCR3TestSeen = 0;
+static volatile int g_iCR3TestDone = 0;
+
+static void kCR3TestTask(void)
+{
+	g_qwCR3TestValue = *(volatile QWORD*)0x400000UL;
+	g_qwCR3TestSeen = PTE_ADDR(kReadCR3());
+	g_iCR3TestDone = 1;
+
+	while(1) {
+		kSchedule();
+	}
+}
+
+
+void kCR3Test(const char* poParamBuff)
+{
+	mm_t* poMm;
+	TCB_t* poTask;
+	QWORD qwPhys, qwStartTick;
+	char vcHex[17];
+	BOOL bPrevFlag;
+
+	poMm = kMmCreate();
+	if(NULL == poMm) {
+		kPrintf("kMmCreate failed\n");
+		return;
+	}
+
+	qwPhys = kAllocPage();
+	if(0 == qwPhys) {
+		kPrintf("alloc failed\n");
+		kMmDestroy(poMm);
+		return;
+	}
+	*(volatile QWORD*)__va(qwPhys) = 0xC0DE1234ABCD5678;
+	kVmaCreate(poMm, 0x400000, 0x401000, VM_READ | VM_WRITE);
+	kMmMapPage(poMm, 0x400000, qwPhys, VM_READ | VM_WRITE);
+
+	g_qwCR3TestValue = 0;
+	g_qwCR3TestSeen = 0;
+	g_iCR3TestDone = 0;
+
+	// kCreateTask는 곧바로 ready 리스트에 넣는다. 여기서 선점되면 태스크가
+	// 커널 CR3로 돌면서 0x400000을 읽어 죽으므로 바인딩까지 원자적으로 한다
+	bPrevFlag = kSetInterruptFlag(FALSE);
+	poTask = kCreateTask(0, (QWORD)kCR3TestTask);
+	if(NULL != poTask) {
+		kSetTaskMm(poTask, poMm);
+	}
+	kSetInterruptFlag(bPrevFlag);
+
+	if(NULL == poTask) {
+		kPrintf("kCreateTask failed\n");
+		kFreePage(qwPhys);
+		kMmDestroy(poMm);
+		return;
+	}
+
+	qwStartTick = g_qwTickCount;
+	while((0 == g_iCR3TestDone) && ((g_qwTickCount - qwStartTick) < 1000)) {
+		kSchedule();
+	}
+
+	if(0 == g_iCR3TestDone) {
+		kPrintf("task never ran (timeout)\n");
+	}
+	else {
+		kToHexString(g_qwCR3TestSeen, vcHex, 12);
+		kPrintf("task cr3=%s want=", vcHex);
+		kToHexString(PTE_ADDR(poMm->qwPML4), vcHex, 12);
+		kPrintf("%s %s\n", vcHex,
+				(g_qwCR3TestSeen == PTE_ADDR(poMm->qwPML4)) ? "OK" : "BAD");
+		kPrintf("task read private VA: %s\n",
+				(0xC0DE1234ABCD5678 == g_qwCR3TestValue) ? "OK" : "MISMATCH");
+	}
+
+	// 커널 스레드는 CR3를 빌려 쓰므로 셸이 아직 그 주소공간 위에 있을 수 있다.
+	// kMmDestroy가 그걸 알아채고 커널 CR3로 돌려놓는지 함께 본다
+	kPrintf("shell borrowed mm cr3: %s\n",
+			(PTE_ADDR(kReadCR3()) == PTE_ADDR(poMm->qwPML4)) ? "yes (lazy TLB)" : "no");
+
+	kEndTask(poTask->stLink.qwID);
+	kFreePage(qwPhys);
+	kMmDestroy(poMm);
+
+	kPrintf("after destroy cr3 is kernel: %s\n",
+			(PTE_ADDR(kReadCR3()) == PTE_ADDR(kGetKernelCR3())) ? "OK" : "BAD");
 }

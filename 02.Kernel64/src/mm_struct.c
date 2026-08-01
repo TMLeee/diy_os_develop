@@ -56,8 +56,9 @@ mm_t* kMmCreate(void)
 	// 커널 절반(PML4[256..511])을 통째로 공유한다. direct map, vmalloc, 커널
 	// 이미지 창이 모든 주소공간에서 같은 자리에 있어야 CR3를 바꾼 직후에도
 	// 커널 코드가 계속 실행되고 스택이 유효하다.
-	// 커널 절반의 PML4 엔트리는 부팅 중에 전부 만들어지고 이후 늘지 않으므로
-	// 생성 시점에 한 번 복사하면 충분하다
+	// 엔트리는 PDPT를 가리키는 포인터다. 그 아래가 나중에 자라는 건 자동으로
+	// 공유되지만, PML4 엔트리 자체가 나중에 생기면 반영되지 않는다.
+	// kInitializePaging이 커널 절반 엔트리를 미리 다 만들어 두는 이유다
 	poKernel = (pte_t*)__va(PTE_ADDR(kGetKernelCR3()));
 	for(i=256; i<512; ++i) {
 		poNew[i] = poKernel[i];

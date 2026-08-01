@@ -13,6 +13,7 @@
 #include "mm.h"
 #include "vmalloc.h"
 #include "paging.h"
+#include "assembly_utils.h"
 
 // scheduler
 static Scheduler_t gstScheduler;
@@ -190,6 +191,10 @@ void kSetupTask(TCB_t* poTCB, QWORD qwFlag, QWORD qwEntryPointAddr, void* poStac
 	// 인터럽트 활성화
 	poTCB->tContext.vqRegister[TASK_RFLAGS_OFFSET] |= 0x0200;
 
+	// 기본은 커널 스레드다. 유저 태스크는 kSetTaskMm으로 주소공간을 붙인다
+	poTCB->poMM = NULL;
+	poTCB->qwCR3 = 0;
+
 	// ID, Stack, Flag 지정
 	poTCB->pvStackAddr = poStackAddr;
 	poTCB->qwStackSize = qwStackSize;
@@ -236,6 +241,29 @@ void kAddTaskToReadyList(TCB_t* poTask)
 }
 
 
+void kSetTaskMm(TCB_t* poTask, mm_t* poMm)
+{
+	if(NULL == poTask) {
+		return;
+	}
+	poTask->poMM = poMm;
+	poTask->qwCR3 = (NULL != poMm) ? poMm->qwPML4 : 0;
+}
+
+
+// 커널 스레드(qwCR3==0)는 현재 주소공간을 그대로 빌려 쓴다. 커널 절반이 모든
+// 주소공간에서 동일하므로 안전하고, 전환마다 TLB를 비우지 않아도 된다
+static void kSwitchAddressSpace(TCB_t* poNext)
+{
+	if(0 == poNext->qwCR3) {
+		return;
+	}
+	if(PTE_ADDR(poNext->qwCR3) != PTE_ADDR(kReadCR3())) {
+		kWriteCR3(poNext->qwCR3);
+	}
+}
+
+
 void kSchedule(void)
 {
 	TCB_t *poRunningTask, *poNextTask;
@@ -258,6 +286,7 @@ void kSchedule(void)
 	gstScheduler.iProcessorTime = TASK_PROCESSOR_TIME;
 
 	gstScheduler.poRunningTask = poNextTask;
+	kSwitchAddressSpace(poNextTask);
 	kSwitchContext(&(poRunningTask->tContext), &(poNextTask->tContext));
 
 	kSetInterruptFlag(bPrevFlag);
@@ -284,6 +313,9 @@ BOOL kScheduleInInterrunt(void)
 
 	gstScheduler.poRunningTask = poNextTask;
 	kMemCpy(pcContextAddr, &(poNextTask->tContext), sizeof(Context_t));
+
+	// IST 스택과 복귀 경로는 커널 절반에 있으므로 여기서 CR3를 바꿔도 된다
+	kSwitchAddressSpace(poNextTask);
 
 	gstScheduler.iProcessorTime = TASK_PROCESSOR_TIME;
 	return TRUE;
