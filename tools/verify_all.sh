@@ -198,5 +198,16 @@ want "shell still takes commands" 'Data: [0-9]+/[0-9]+/[0-9]+' "$s"
 deny "kernel did not panic"     'KERNEL PANIC' "$s"
 want "no frames leaked"         'free before=[0-9A-F]+ after=[0-9A-F]+ OK' "$s"
 
+sect "demand paging: anonymous pages arrive on first touch"
+s=$(CMD_WAIT=6 "$WORK/bootcheck.sh" 'cls' 'usertest demand' 2>&1)
+# nothing is mapped up front - stack and heap both start as VMAs only
+want "nothing pre-mapped"       'stack pages 0  map OK' "$s"
+# the stub writes 16 heap pages then reads them all back
+want "faulted pages keep data"  'demand paging ok' "$s"
+want "16 heap + 1 stack faulted" 'demand-paged 17 pages' "$s"
+want "task survived"            'task still alive  killed so far=0' "$s"
+want "no frames leaked"         'free before=[0-9A-F]+ after=[0-9A-F]+ OK' "$s"
+deny "no SEGV while faulting"   'SEGV|KERNEL PANIC' "$s"
+
 echo "=============== $pass passed, $fail failed ==============="
 exit $([ "$fail" -eq 0 ] && echo 0 || echo 1)

@@ -4,6 +4,7 @@ SECTION .text
 
 global kUserStubStart, kUserStubEnd
 global kUserBadStubStart, kUserBadStubEnd
+global kUserDemandStubStart, kUserDemandStubEnd
 
 ; ring3에서 도는 시험용 프로그램. 커널 .text 안에 링크되지만 실행은 유저
 ; 페이지로 복사한 뒤에 하므로 위치 독립이어야 한다 - 문자열을 RIP 상대로 잡는
@@ -48,6 +49,55 @@ kUserBadStubStart:
 .msg:	db "ring3 about to touch kernel", 10
 .msgend:
 kUserBadStubEnd:
+
+
+; 매핑되지 않은 VMA를 페이지마다 건드린다. VMA만 있고 프레임은 없으므로
+; 접근할 때마다 #PF가 나고 커널이 그때 프레임을 붙여야 한다
+kUserDemandStubStart:
+	; 유저 스택도 매핑돼 있지 않다. 이 push가 첫 스택 폴트를 낸다
+	push rax
+	pop rax
+
+	mov rbx, 0x500000
+	mov rcx, 16
+.touch:
+	mov [rbx], rcx
+	add rbx, 0x1000
+	dec rcx
+	jnz .touch
+
+	; 되읽어 값이 남아 있는지 본다. 폴트마다 새 프레임이 제대로 붙었는지 확인
+	mov rbx, 0x500000
+	mov rcx, 16
+.verify:
+	cmp [rbx], rcx
+	jne .bad
+	add rbx, 0x1000
+	dec rcx
+	jnz .verify
+
+	mov rax, 1
+	mov rdi, 1
+	lea rsi, [rel .okmsg]
+	mov rdx, .okend - .okmsg
+	int 0x80
+	jmp .spin
+
+.bad:
+	mov rax, 1
+	mov rdi, 1
+	lea rsi, [rel .badmsg]
+	mov rdx, .badend - .badmsg
+	int 0x80
+
+.spin:
+	jmp .spin
+
+.okmsg:	db "demand paging ok", 10
+.okend:
+.badmsg:	db "demand paging MISMATCH", 10
+.badend:
+kUserDemandStubEnd:
 
 
 ; 링커의 executable-stack 경고 억제

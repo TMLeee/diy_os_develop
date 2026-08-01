@@ -55,7 +55,7 @@ ShellCmdEntry_t gtCommandTable[] =
 		{"syscalltest", "Exercise The int 0x80 Path", kSyscallTest},
 		{"mmtest", "Build A User Address Space And Switch To It", kMmTest},
 		{"cr3test", "Run A Task Bound To Its Own Address Space", kCR3Test},
-		{"usertest", "Run A ring3 Program, ex)usertest [bad]", kUserTest}
+		{"usertest", "Run A ring3 Program, ex)usertest [bad|demand]", kUserTest}
 };
 
 
@@ -1178,9 +1178,13 @@ extern char kUserStubStart[];
 extern char kUserStubEnd[];
 extern char kUserBadStubStart[];
 extern char kUserBadStubEnd[];
+extern char kUserDemandStubStart[];
+extern char kUserDemandStubEnd[];
 
 #define USER_CODE_VA	0x400000UL
 #define USER_STACK_PAGES	4
+#define USER_HEAP_VA		0x500000UL
+#define USER_HEAP_PAGES	16
 
 void kUserTest(const char* poParamBuff)
 {
@@ -1193,18 +1197,33 @@ void kUserTest(const char* poParamBuff)
 	const char* pcStub;
 	ParamList_t stList;
 	int i, iStackGot = 0;
-	BOOL bPrevFlag, bOk = TRUE, bBad = FALSE;
+	BOOL bPrevFlag, bOk = TRUE, bBad = FALSE, bDemand = FALSE;
+	QWORD qwDemandBefore;
 
-	// "usertest bad"는 커널 주소를 건드리는 스텁을 올린다. U/S 경계가 서 있으면
-	// 그 태스크만 죽고 셸은 계속 돌아야 한다
+	// bad     - 커널 주소를 건드린다. 그 태스크만 죽어야 한다
+	// demand  - 매핑 없는 VMA를 훑는다. 폴트마다 프레임이 붙어야 한다
 	kInitializeParam(&stList, poParamBuff);
 	if(0 != kGetNextParam(&stList, vcParam)) {
-		bBad = TRUE;
+		if(0 == kMemCmp(vcParam, "demand", 7)) {
+			bDemand = TRUE;
+		}
+		else {
+			bBad = TRUE;
+		}
 	}
 
-	pcStub = (TRUE == bBad) ? kUserBadStubStart : kUserStubStart;
-	qwStubLen = (TRUE == bBad) ? (QWORD)(kUserBadStubEnd - kUserBadStubStart)
-							   : (QWORD)(kUserStubEnd - kUserStubStart);
+	if(TRUE == bDemand) {
+		pcStub = kUserDemandStubStart;
+		qwStubLen = (QWORD)(kUserDemandStubEnd - kUserDemandStubStart);
+	}
+	else if(TRUE == bBad) {
+		pcStub = kUserBadStubStart;
+		qwStubLen = (QWORD)(kUserBadStubEnd - kUserBadStubStart);
+	}
+	else {
+		pcStub = kUserStubStart;
+		qwStubLen = (QWORD)(kUserStubEnd - kUserStubStart);
+	}
 	if((0 == qwStubLen) || (PAGE_SIZE < qwStubLen)) {
 		kPrintf("stub size %q is not usable\n", qwStubLen);
 		return;
@@ -1248,7 +1267,15 @@ void kUserTest(const char* poParamBuff)
 	// 유저 스택: 유저 절반 꼭대기에서 아래로
 	qwStackBase = USER_STACK_TOP - ((QWORD)USER_STACK_PAGES * PAGE_SIZE);
 	kVmaCreate(poMm, qwStackBase, USER_STACK_TOP, VM_READ | VM_WRITE | VM_GROWSDOWN);
-	for(i=0; i<USER_STACK_PAGES; ++i) {
+
+	// demand 모드에서는 VMA만 만들고 프레임은 붙이지 않는다. 스택도 힙도
+	// 처음 건드릴 때 폴트 핸들러가 채워야 한다
+	if(TRUE == bDemand) {
+		kVmaCreate(poMm, USER_HEAP_VA,
+				USER_HEAP_VA + ((QWORD)USER_HEAP_PAGES * PAGE_SIZE), VM_READ | VM_WRITE);
+	}
+
+	for(i=0; (FALSE == bDemand) && (i<USER_STACK_PAGES); ++i) {
 		vqStackPhys[i] = kAllocPage();
 		if(0 == vqStackPhys[i]) {
 			bOk = FALSE;
@@ -1278,6 +1305,7 @@ void kUserTest(const char* poParamBuff)
 		return;
 	}
 
+	qwDemandBefore = kGetDemandPageCount();
 	kPrintf("entering ring3...\n");
 
 	bPrevFlag = kSetInterruptFlag(FALSE);
@@ -1303,6 +1331,14 @@ void kUserTest(const char* poParamBuff)
 					(int)(poTask->tContext.vqRegister[TASK_CS_OFFSET] & 0x03),
 					(GDT_USER_CODE_SELECTOR ==
 						poTask->tContext.vqRegister[TASK_CS_OFFSET]) ? "ring3" : "NOT ring3");
+		}
+
+		if(TRUE == bDemand) {
+			// 힙 16장 + 스택 최소 1장. 미리 매핑한 게 없으니 전부 폴트로 붙은 것이다.
+			// %q는 16진수라 10진수 기대값과 나란히 두면 오해를 부른다
+			kUIToDecString(kGetDemandPageCount() - qwDemandBefore, vcHex);
+			kPrintf("demand-paged %s pages (want >= %d)\n",
+					vcHex, USER_HEAP_PAGES + 1);
 		}
 
 		kPrintf("task %s  killed so far=%q\n",

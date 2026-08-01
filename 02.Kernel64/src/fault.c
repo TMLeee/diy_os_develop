@@ -12,6 +12,9 @@
 #include "descriptor.h"
 #include "console.h"
 #include "utility.h"
+#include "pmm.h"
+#include "paging.h"
+#include "assembly_utils.h"
 
 
 // 에러코드가 있는 예외는 프레임이 한 칸 밀린다. KSAVECONTEXT가 rbp를 먼저
@@ -27,6 +30,34 @@
 
 
 static QWORD g_qwKilledTasks = 0;
+static QWORD g_qwDemandPages = 0;
+
+
+// VMA는 있는데 페이지가 없다 = 익명 페이지 지연 할당. 리눅스가 익명 매핑에
+// 하는 것과 같다 - 주소공간을 잡을 때가 아니라 처음 건드릴 때 프레임을 준다
+static BOOL kAnonymousFault(mm_t* poMm, vm_area_t* poVma, QWORD qwCR2)
+{
+	QWORD qwVirtAddr = PAGE_ALIGN_DOWN(qwCR2);
+	QWORD qwPhys;
+
+	qwPhys = kAllocPage();
+	if(0 == qwPhys) {
+		return FALSE;
+	}
+
+	// 반드시 0으로 준다. 안 그러면 앞서 이 프레임을 쓰던 쪽의 내용이 샌다
+	kMemSet(__va(qwPhys), 0, PAGE_SIZE);
+
+	if(FALSE == kMmMapPage(poMm, qwVirtAddr, qwPhys, poVma->qwFlags)) {
+		kFreePage(qwPhys);
+		return FALSE;
+	}
+
+	// 이 VA로 not-present가 TLB에 캐시돼 있을 수 있다
+	kInvlpg(qwVirtAddr);
+	++g_qwDemandPages;
+	return TRUE;
+}
 
 
 // 폴트를 낸 유저 태스크를 끝낸다. 여기서 직접 태스크를 바꾸지 않고 iretq가
@@ -107,10 +138,27 @@ BOOL kDoPageFault(QWORD qwErrCode, QWORD qwCR2, QWORD* pqwFrame)
 		return TRUE;
 	}
 
-	// VMA는 있는데 페이지가 없는 경우 = demand paging. 26b에서 채운다
-	kReportSegv(poTask, qwCR2, qwErrCode, "unpopulated VMA");
+	// 여기까지 왔는데 not-present면 정당한 접근인데 프레임이 없는 것이다
+	if(0 == (qwErrCode & PF_ERR_PRESENT)) {
+		if(TRUE == kAnonymousFault(poTask->poMM, poVma, qwCR2)) {
+			return TRUE;
+		}
+		kReportSegv(poTask, qwCR2, qwErrCode, "out of memory");
+		kKillFaultingTask(pqwFrame, poTask);
+		return TRUE;
+	}
+
+	// present인데 여기까지 온 것은 아직 다루지 않는 권한 위반이다.
+	// COW가 들어오는 자리다(26c)
+	kReportSegv(poTask, qwCR2, qwErrCode, "protection");
 	kKillFaultingTask(pqwFrame, poTask);
 	return TRUE;
+}
+
+
+QWORD kGetDemandPageCount(void)
+{
+	return g_qwDemandPages;
 }
 
 
