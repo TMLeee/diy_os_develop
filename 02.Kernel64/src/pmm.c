@@ -315,6 +315,47 @@ QWORD kAllocPages(int iOrder)
 }
 
 
+// COW로 프레임을 공유하기 시작하면 마지막 소유자만 반납해야 한다.
+// kAllocPages가 이미 iRefCount=1로 만들어 주므로 여기서는 증감만 한다
+int kGetPageRefCount(QWORD qwPhysAddr)
+{
+	QWORD qwPfn = PFN_DOWN(qwPhysAddr);
+
+	if((NULL == g_poMemMap) || (qwPfn >= g_qwTotalPages)) {
+		return 0;
+	}
+	return g_poMemMap[qwPfn].iRefCount;
+}
+
+
+void kPageGet(QWORD qwPhysAddr)
+{
+	QWORD qwPfn = PFN_DOWN(qwPhysAddr);
+
+	if((NULL == g_poMemMap) || (qwPfn >= g_qwTotalPages)) {
+		return;
+	}
+	++g_poMemMap[qwPfn].iRefCount;
+}
+
+
+// 참조를 하나 내려놓는다. 0이 되면 그때 진짜로 반납한다
+void kPagePut(QWORD qwPhysAddr)
+{
+	QWORD qwPfn = PFN_DOWN(qwPhysAddr);
+
+	if((NULL == g_poMemMap) || (qwPfn >= g_qwTotalPages)) {
+		return;
+	}
+	if(0 < g_poMemMap[qwPfn].iRefCount) {
+		--g_poMemMap[qwPfn].iRefCount;
+	}
+	if(0 == g_poMemMap[qwPfn].iRefCount) {
+		kFreePages(qwPhysAddr, 0);
+	}
+}
+
+
 void kFreePages(QWORD qwPhysAddr, int iOrder)
 {
 	QWORD qwPfn = PFN_DOWN(qwPhysAddr);

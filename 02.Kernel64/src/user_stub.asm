@@ -5,6 +5,7 @@ SECTION .text
 global kUserStubStart, kUserStubEnd
 global kUserBadStubStart, kUserBadStubEnd
 global kUserDemandStubStart, kUserDemandStubEnd
+global kUserForkStubStart, kUserForkStubEnd
 
 ; ring3에서 도는 시험용 프로그램. 커널 .text 안에 링크되지만 실행은 유저
 ; 페이지로 복사한 뒤에 하므로 위치 독립이어야 한다 - 문자열을 RIP 상대로 잡는
@@ -98,6 +99,83 @@ kUserDemandStubStart:
 .badmsg:	db "demand paging MISMATCH", 10
 .badend:
 kUserDemandStubEnd:
+
+
+; fork 후 자식이 공유 페이지에 쓴다. COW가 돌면 부모 쪽 값은 그대로여야 한다.
+; 이 한 프로그램이 fork, COW, 주소공간 분리를 동시에 확인한다
+kUserForkStubStart:
+	; fork 전에 부모가 표식을 남긴다. 이 페이지가 곧 공유된다
+	mov rbx, 0x500000
+	mov qword [rbx], 0x1111
+
+	mov rax, 57				; SYS_FORK
+	int 0x80
+	test rax, rax
+	jz .child
+
+; ---- 부모 ----
+	; 자식이 쓸 시간을 준다
+	mov rax, 201
+	int 0x80
+	mov r12, rax
+	add r12, 200
+.wait:
+	mov rax, 201
+	int 0x80
+	cmp rax, r12
+	jb .wait
+
+	mov rbx, 0x500000
+	cmp qword [rbx], 0x1111
+	jne .clobbered
+
+	; 자식이 이미 자기 사본을 떠 갔으므로 이 프레임의 참조는 이제 하나다.
+	; 여기 쓰기는 복사 없이 쓰기 권한만 돌려받아야 한다(COW reuse 경로)
+	mov qword [rbx], 0x3333
+	cmp qword [rbx], 0x3333
+	jne .clobbered
+
+	mov rax, 1
+	mov rdi, 1
+	lea rsi, [rel .okmsg]
+	mov rdx, .okend - .okmsg
+	int 0x80
+	jmp .spin
+
+.clobbered:
+	mov rax, 1
+	mov rdi, 1
+	lea rsi, [rel .badmsg]
+	mov rdx, .badend - .badmsg
+	int 0x80
+	jmp .spin
+
+; ---- 자식 ----
+.child:
+	; 공유 페이지에 쓴다. PTE가 RO로 강등돼 있으므로 여기서 COW 폴트가 난다
+	mov rbx, 0x500000
+	mov qword [rbx], 0x2222
+
+	; 자기 사본에 제대로 들어갔는지 확인
+	cmp qword [rbx], 0x2222
+	jne .spin
+
+	mov rax, 1
+	mov rdi, 1
+	lea rsi, [rel .childmsg]
+	mov rdx, .childend - .childmsg
+	int 0x80
+
+.spin:
+	jmp .spin
+
+.okmsg:		db "parent data intact after child write", 10
+.okend:
+.badmsg:	db "parent data CLOBBERED", 10
+.badend:
+.childmsg:	db "child wrote its own copy", 10
+.childend:
+kUserForkStubEnd:
 
 
 ; 링커의 executable-stack 경고 억제

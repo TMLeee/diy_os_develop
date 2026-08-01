@@ -14,6 +14,7 @@
 
 
 #define SYS_WRITE		1
+#define SYS_FORK		57
 #define SYS_GETPID		39
 #define SYS_EXIT		60
 #define SYS_UPTIME		201		// 커널 자체 확장(틱 수)
@@ -25,6 +26,8 @@
 #define SYS_EBADF		9
 #define SYS_EFAULT		14
 #define SYS_ENOSYS		38
+#define SYS_EINVAL		22
+#define SYS_ENOMEM		12
 
 
 // 저장된 레지스터 프레임(Context_t 레이아웃)을 받아 RAX 자리에 결과를 쓴다

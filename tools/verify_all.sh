@@ -192,7 +192,7 @@ want "user reaches ring3 first"  'ring3 about to touch kernel' "$s"
 # present+read from user mode means the U/S check rejected it, not a missing page
 want "SEGV on a kernel address" 'SEGV task [0-9A-F]+ at FFFFFFFF80200000 \(read,prot\) kernel address' "$s"
 want "only that task died"      'task died \(SEGV\)  killed so far=1' "$s"
-want "shell survived the fault" 'ring3 task reaped, shell alive' "$s"
+want "shell survived the fault" 'reaped [0-9]+ user task\(s\), shell alive' "$s"
 # the shell taking a command afterwards is the real proof the kernel is intact
 want "shell still takes commands" 'Data: [0-9]+/[0-9]+/[0-9]+' "$s"
 deny "kernel did not panic"     'KERNEL PANIC' "$s"
@@ -208,6 +208,21 @@ want "16 heap + 1 stack faulted" 'demand-paged 17 pages' "$s"
 want "task survived"            'task still alive  killed so far=0' "$s"
 want "no frames leaked"         'free before=[0-9A-F]+ after=[0-9A-F]+ OK' "$s"
 deny "no SEGV while faulting"   'SEGV|KERNEL PANIC' "$s"
+
+sect "fork and copy-on-write"
+s=$(CMD_WAIT=8 "$WORK/bootcheck.sh" 'cls' 'usertest fork' 'date' 2>&1)
+# the child took the rax==0 branch, so fork returned twice from one int 0x80
+want "child got 0 from fork"    'child wrote its own copy' "$s"
+# the whole point: the child wrote the shared page and the parent did not see it
+want "parent data survived"     'parent data intact after child write' "$s"
+deny "parent not clobbered"     'parent data CLOBBERED' "$s"
+# copies=1 is the child breaking the share; reuses=1 is the parent writing after
+# it became the only owner, which must not copy
+want "both COW branches ran"    'cow copies=1 reuses=1' "$s"
+want "parent and child reaped"  'reaped 2 user task\(s\), shell alive' "$s"
+want "no frames leaked"         'free before=[0-9A-F]+ after=[0-9A-F]+ OK' "$s"
+want "shell still takes commands" 'Data: [0-9]+/[0-9]+/[0-9]+' "$s"
+deny "no fault escaped"         'SEGV|KERNEL PANIC' "$s"
 
 echo "=============== $pass passed, $fail failed ==============="
 exit $([ "$fail" -eq 0 ] && echo 0 || echo 1)

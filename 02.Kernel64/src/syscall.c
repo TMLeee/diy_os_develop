@@ -10,6 +10,7 @@
 #include "task.h"
 #include "console.h"
 #include "utility.h"
+#include "mm_struct.h"
 
 
 static QWORD g_qwSyscallCount = 0;
@@ -55,6 +56,34 @@ static QWORD kSysGetPid(void)
 }
 
 
+// 주소공간을 통째로 복사하지 않는다. kMmCopy가 페이지를 공유하며 양쪽 다
+// 읽기 전용으로 내려놓고, 실제 복사는 누가 쓸 때 폴트에서 일어난다
+static QWORD kSysFork(QWORD* pqwRegs)
+{
+	TCB_t* poParent = kGetRunningTask();
+	TCB_t* poChild;
+	mm_t* poChildMm;
+
+	if((NULL == poParent) || (NULL == poParent->poMM)) {
+		return (QWORD)(-SYS_EINVAL);
+	}
+
+	poChildMm = kMmCopy(poParent->poMM);
+	if(NULL == poChildMm) {
+		return (QWORD)(-SYS_ENOMEM);
+	}
+
+	poChild = kForkTask(poChildMm, pqwRegs);
+	if(NULL == poChild) {
+		kMmDestroy(poChildMm);
+		return (QWORD)(-SYS_ENOMEM);
+	}
+
+	// 부모는 자식 ID를, 자식은 0을 받는다
+	return poChild->stLink.qwID;
+}
+
+
 void kSyscallHandler(QWORD* pqwRegs)
 {
 	QWORD qwNum = pqwRegs[TASK_RAX_OFFSET];
@@ -68,6 +97,10 @@ void kSyscallHandler(QWORD* pqwRegs)
 			qwRet = kSysWrite(pqwRegs[TASK_RDI_OFFSET],
 							  (const char*)pqwRegs[TASK_RSI_OFFSET],
 							  pqwRegs[TASK_RDX_OFFSET]);
+			break;
+
+		case SYS_FORK:
+			qwRet = kSysFork(pqwRegs);
 			break;
 
 		case SYS_GETPID:

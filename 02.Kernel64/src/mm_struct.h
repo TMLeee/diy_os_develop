@@ -49,6 +49,7 @@ typedef struct kMmStruct {
 
 mm_t* kMmCreate(void);
 void kMmDestroy(mm_t* poMm);
+mm_t* kMmCopy(mm_t* poSrc);
 
 vm_area_t* kVmaCreate(mm_t* poMm, QWORD qwStart, QWORD qwEnd, QWORD qwFlags);
 vm_area_t* kVmaFind(mm_t* poMm, QWORD qwAddr);

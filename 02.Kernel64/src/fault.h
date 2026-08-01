@@ -27,5 +27,7 @@ BOOL kDoPageFault(QWORD qwErrCode, QWORD qwCR2, QWORD* pqwFrame);
 
 QWORD kGetKilledTaskCount(void);
 QWORD kGetDemandPageCount(void);
+QWORD kGetCowCopyCount(void);
+QWORD kGetCowReuseCount(void);
 
 #endif

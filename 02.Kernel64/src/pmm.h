@@ -20,6 +20,9 @@ BOOL kInitializePhysicalMemory(void);
 
 QWORD kAllocPages(int iOrder);
 void kFreePages(QWORD qwPhysAddr, int iOrder);
+int kGetPageRefCount(QWORD qwPhysAddr);
+void kPageGet(QWORD qwPhysAddr);
+void kPagePut(QWORD qwPhysAddr);
 #define kAllocPage()			kAllocPages(0)
 #define kFreePage(pa)			kFreePages((pa), 0)
 

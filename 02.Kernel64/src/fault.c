@@ -31,6 +31,8 @@
 
 static QWORD g_qwKilledTasks = 0;
 static QWORD g_qwDemandPages = 0;
+static QWORD g_qwCowCopies = 0;
+static QWORD g_qwCowReuses = 0;
 
 
 // VMA는 있는데 페이지가 없다 = 익명 페이지 지연 할당. 리눅스가 익명 매핑에
@@ -56,6 +58,46 @@ static BOOL kAnonymousFault(mm_t* poMm, vm_area_t* poVma, QWORD qwCR2)
 	// 이 VA로 not-present가 TLB에 캐시돼 있을 수 있다
 	kInvlpg(qwVirtAddr);
 	++g_qwDemandPages;
+	return TRUE;
+}
+
+
+// VMA는 쓰기를 허용하는데 PTE에 RW가 없다 = kMmCopy가 강등해 둔 COW 페이지.
+// 참조가 하나뿐이면 복사할 이유가 없다. 그냥 쓰기 권한을 돌려준다
+static BOOL kCowFault(mm_t* poMm, vm_area_t* poVma, QWORD qwCR2)
+{
+	QWORD qwVirtAddr = PAGE_ALIGN_DOWN(qwCR2);
+	QWORD qwOldPhys, qwNewPhys;
+
+	qwOldPhys = kVirtToPhys(poMm->qwPML4, qwVirtAddr);
+	if(0 == qwOldPhys) {
+		return FALSE;
+	}
+
+	if(1 >= kGetPageRefCount(qwOldPhys)) {
+		if(FALSE == kMmMapPage(poMm, qwVirtAddr, qwOldPhys, poVma->qwFlags)) {
+			return FALSE;
+		}
+		kInvlpg(qwVirtAddr);
+		++g_qwCowReuses;
+		return TRUE;
+	}
+
+	qwNewPhys = kAllocPage();
+	if(0 == qwNewPhys) {
+		return FALSE;
+	}
+	kMemCpy(__va(qwNewPhys), __va(qwOldPhys), PAGE_SIZE);
+
+	if(FALSE == kMmMapPage(poMm, qwVirtAddr, qwNewPhys, poVma->qwFlags)) {
+		kFreePage(qwNewPhys);
+		return FALSE;
+	}
+	kInvlpg(qwVirtAddr);
+
+	// 공유를 하나 끊는다. 남은 쪽이 혼자가 되면 다음 폴트는 복사 없이 끝난다
+	kPagePut(qwOldPhys);
+	++g_qwCowCopies;
 	return TRUE;
 }
 
@@ -148,11 +190,32 @@ BOOL kDoPageFault(QWORD qwErrCode, QWORD qwCR2, QWORD* pqwFrame)
 		return TRUE;
 	}
 
-	// present인데 여기까지 온 것은 아직 다루지 않는 권한 위반이다.
-	// COW가 들어오는 자리다(26c)
+	// present + write까지 왔다는 것은 VMA는 쓰기를 허용한다는 뜻이다(위에서
+	// 걸렀다). 즉 PTE만 RO인 상태 = COW다
+	if(0 != (qwErrCode & PF_ERR_WRITE)) {
+		if(TRUE == kCowFault(poTask->poMM, poVma, qwCR2)) {
+			return TRUE;
+		}
+		kReportSegv(poTask, qwCR2, qwErrCode, "out of memory (cow)");
+		kKillFaultingTask(pqwFrame, poTask);
+		return TRUE;
+	}
+
 	kReportSegv(poTask, qwCR2, qwErrCode, "protection");
 	kKillFaultingTask(pqwFrame, poTask);
 	return TRUE;
+}
+
+
+QWORD kGetCowCopyCount(void)
+{
+	return g_qwCowCopies;
+}
+
+
+QWORD kGetCowReuseCount(void)
+{
+	return g_qwCowReuses;
 }
 
 

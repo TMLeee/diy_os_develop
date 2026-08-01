@@ -112,7 +112,9 @@ static void kFreeUserTables(QWORD qwPML4)
 
 				for(l=0; l<512; ++l) {
 					if(0 != (poPT[l] & PTE_P)) {
-						kFreePage(PTE_ADDR(poPT[l]));
+						// fork 후에는 다른 주소공간과 프레임을 공유할 수 있다.
+						// 마지막 참조일 때만 실제로 반납된다
+						kPagePut(PTE_ADDR(poPT[l]));
 					}
 				}
 				kFreePage(PTE_ADDR(poPD[k]));
@@ -215,6 +217,98 @@ vm_area_t* kVmaFind(mm_t* poMm, QWORD qwAddr)
 		}
 	}
 	return NULL;
+}
+
+
+// 유저 절반의 present 4KB 리프를 전부 자식에게도 걸고, 양쪽 다 쓰기 권한을
+// 뺀다. 그러면 어느 쪽이 쓰든 #PF가 나고 그때 복사한다(copy-on-write).
+// VMA에 VM_WRITE가 있는데 PTE에 RW가 없다 = COW 대상, 이라는 규약을 쓴다
+static BOOL kMmCopyPtes(mm_t* poDst, QWORD qwSrcPML4)
+{
+	pte_t* poPML4 = (pte_t*)__va(PTE_ADDR(qwSrcPML4));
+	pte_t *poPDPT, *poPD, *poPT;
+	QWORD qwVirtAddr, qwFlags;
+	int i, j, k, l;
+
+	for(i=0; i<256; ++i) {
+		if(0 == (poPML4[i] & PTE_P)) {
+			continue;
+		}
+		poPDPT = (pte_t*)__va(PTE_ADDR(poPML4[i]));
+
+		for(j=0; j<512; ++j) {
+			if((0 == (poPDPT[j] & PTE_P)) || (0 != (poPDPT[j] & PTE_PS))) {
+				continue;
+			}
+			poPD = (pte_t*)__va(PTE_ADDR(poPDPT[j]));
+
+			for(k=0; k<512; ++k) {
+				if((0 == (poPD[k] & PTE_P)) || (0 != (poPD[k] & PTE_PS))) {
+					continue;
+				}
+				poPT = (pte_t*)__va(PTE_ADDR(poPD[k]));
+
+				for(l=0; l<512; ++l) {
+					if(0 == (poPT[l] & PTE_P)) {
+						continue;
+					}
+
+					qwVirtAddr = ((QWORD)i << 39) | ((QWORD)j << 30) |
+								 ((QWORD)k << 21) | ((QWORD)l << 12);
+
+					// US/NX는 유지하고 RW만 뺀다
+					qwFlags = poPT[l] & (PTE_US | PTE_NX);
+
+					if(FALSE == kMapPage(poDst->qwPML4, qwVirtAddr,
+										PTE_ADDR(poPT[l]), qwFlags)) {
+						return FALSE;
+					}
+					kPageGet(PTE_ADDR(poPT[l]));
+
+					// 부모 쪽도 같이 강등해야 한다. 한쪽만 하면 부모가 자식
+					// 몰래 공유 프레임을 고칠 수 있다
+					poPT[l] &= ~PTE_RW;
+				}
+			}
+		}
+	}
+	return TRUE;
+}
+
+
+mm_t* kMmCopy(mm_t* poSrc)
+{
+	mm_t* poNew;
+	vm_area_t* poVma;
+
+	if(NULL == poSrc) {
+		return NULL;
+	}
+
+	poNew = kMmCreate();
+	if(NULL == poNew) {
+		return NULL;
+	}
+
+	for(poVma = poSrc->poVmaList; NULL != poVma; poVma = poVma->poNext) {
+		if(NULL == kVmaCreate(poNew, poVma->qwStart, poVma->qwEnd, poVma->qwFlags)) {
+			kMmDestroy(poNew);
+			return NULL;
+		}
+	}
+
+	if(FALSE == kMmCopyPtes(poNew, poSrc->qwPML4)) {
+		kMmDestroy(poNew);
+		return NULL;
+	}
+
+	poNew->qwCodeStart	= poSrc->qwCodeStart;
+	poNew->qwCodeEnd	= poSrc->qwCodeEnd;
+	poNew->qwBrk		= poSrc->qwBrk;
+
+	// 부모의 PTE를 고쳤으므로 부모가 돌고 있는 CR3의 TLB를 버려야 한다
+	kWriteCR3(kReadCR3());
+	return poNew;
 }
 
 

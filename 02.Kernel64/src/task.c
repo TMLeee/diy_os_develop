@@ -172,6 +172,63 @@ TCB_t* kCreateUserTask(mm_t* poMm, QWORD qwEntryAddr, QWORD qwUserStackTop)
 }
 
 
+// fork. 부모의 시스템콜 프레임을 그대로 자식 컨텍스트로 옮긴다. int 0x80은
+// 에러코드가 없어서 그 프레임이 정확히 Context_t 레이아웃이라 가능한 일이다.
+// 자식은 RAX가 0이라 같은 명령 다음 줄에서 다른 값을 보고 깨어난다
+TCB_t* kForkTask(mm_t* poMm, QWORD* pqwFrame)
+{
+	TCB_t* poChild;
+	void* pvKernelStack;
+
+	if((NULL == poMm) || (NULL == pqwFrame)) {
+		return NULL;
+	}
+
+	poChild = kAllocateTCB();
+	if(NULL == poChild) {
+		return NULL;
+	}
+
+	pvKernelStack = kVmapPages(TASK_STACK_PAGES, 1, 0);
+	if(NULL == pvKernelStack) {
+		kFreeTCB(poChild->stLink.qwID);
+		return NULL;
+	}
+
+	kMemCpy(&(poChild->tContext), pqwFrame, sizeof(Context_t));
+	poChild->tContext.vqRegister[TASK_RAX_OFFSET] = 0;
+
+	poChild->pvStackAddr	= pvKernelStack;
+	poChild->qwStackSize	= TASK_STACK_SIZE;
+	poChild->qwFlag			= 0;
+
+	kSetTaskMm(poChild, poMm);
+	kAddTaskToReadyList(poChild);
+
+	return poChild;
+}
+
+
+// 주소공간을 가진 태스크를 전부 끝낸다. 시험이 fork로 만든 자식까지 걷어낼
+// 방법이 필요해서 둔다
+int kEndAllUserTasks(void)
+{
+	TCB_t* poTask;
+	int i, iEnded = 0;
+
+	for(i=0; i<gstTCBPoolManager.iMaxCnt; ++i) {
+		poTask = &(gstTCBPoolManager.poStartAddr[i]);
+		if((NULL == poTask->poMM) || (poTask == gstScheduler.poRunningTask)) {
+			continue;
+		}
+		if(TRUE == kEndTask(poTask->stLink.qwID)) {
+			++iEnded;
+		}
+	}
+	return iEnded;
+}
+
+
 // 태스크를 정리한다. 이 커널이 스택을 반납하는 최초의 경로
 void kFreeTask(TCB_t* poTask)
 {
@@ -182,6 +239,15 @@ void kFreeTask(TCB_t* poTask)
 	kVfree(poTask->pvStackAddr);
 	poTask->pvStackAddr = NULL;
 	poTask->qwStackSize = 0;
+
+	// 유저 태스크는 자기 주소공간을 소유한다. fork가 만든 자식의 mm은 아무도
+	// 들고 있지 않으므로 여기서 정리하지 않으면 새어나간다
+	if(NULL != poTask->poMM) {
+		kMmDestroy(poTask->poMM);
+		poTask->poMM = NULL;
+		poTask->qwCR3 = 0;
+	}
+
 	kFreeTCB(poTask->stLink.qwID);
 }
 

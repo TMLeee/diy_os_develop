@@ -124,6 +124,8 @@ void kSetTaskMm(TCB_t* poTask, mm_t* poMm);
 TCB_t* kCreateUserTask(mm_t* poMm, QWORD qwEntryAddr, QWORD qwUserStackTop);
 BOOL kEndTask(QWORD qwTaskID);
 void kExitTask(void);
+TCB_t* kForkTask(mm_t* poMm, QWORD* pqwFrame);
+int kEndAllUserTasks(void);
 void kSetupTask(TCB_t* poTCB, QWORD qwFlag, QWORD qwEntryPointAddr,
 	void *poStackAddr, QWORD qwStackSize);
 

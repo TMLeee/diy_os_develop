@@ -55,7 +55,7 @@ ShellCmdEntry_t gtCommandTable[] =
 		{"syscalltest", "Exercise The int 0x80 Path", kSyscallTest},
 		{"mmtest", "Build A User Address Space And Switch To It", kMmTest},
 		{"cr3test", "Run A Task Bound To Its Own Address Space", kCR3Test},
-		{"usertest", "Run A ring3 Program, ex)usertest [bad|demand]", kUserTest}
+		{"usertest", "Run A ring3 Program, ex)usertest [bad|demand|fork]", kUserTest}
 };
 
 
@@ -1163,9 +1163,9 @@ void kCR3Test(const char* poParamBuff)
 	kPrintf("shell borrowed mm cr3: %s\n",
 			(PTE_ADDR(kReadCR3()) == PTE_ADDR(poMm->qwPML4)) ? "yes (lazy TLB)" : "no");
 
+	// 태스크가 mm을 소유한다. kEndTask -> kFreeTask가 kMmDestroy까지 하므로
+	// 여기서 또 부르면 해제된 mm을 만진다. qwPhys도 그 안에서 반납된다
 	kEndTask(poTask->stLink.qwID);
-	// qwPhys는 주소공간에 매핑돼 있으므로 kMmDestroy가 반납한다
-	kMmDestroy(poMm);
 
 	kPrintf("after destroy cr3 is kernel: %s\n",
 			(PTE_ADDR(kReadCR3()) == PTE_ADDR(kGetKernelCR3())) ? "OK" : "BAD");
@@ -1180,6 +1180,8 @@ extern char kUserBadStubStart[];
 extern char kUserBadStubEnd[];
 extern char kUserDemandStubStart[];
 extern char kUserDemandStubEnd[];
+extern char kUserForkStubStart[];
+extern char kUserForkStubEnd[];
 
 #define USER_CODE_VA	0x400000UL
 #define USER_STACK_PAGES	4
@@ -1197,8 +1199,8 @@ void kUserTest(const char* poParamBuff)
 	const char* pcStub;
 	ParamList_t stList;
 	int i, iStackGot = 0;
-	BOOL bPrevFlag, bOk = TRUE, bBad = FALSE, bDemand = FALSE;
-	QWORD qwDemandBefore;
+	BOOL bPrevFlag, bOk = TRUE, bBad = FALSE, bDemand = FALSE, bFork = FALSE;
+	QWORD qwDemandBefore, qwCowBefore, qwCowReuseBefore;
 
 	// bad     - 커널 주소를 건드린다. 그 태스크만 죽어야 한다
 	// demand  - 매핑 없는 VMA를 훑는다. 폴트마다 프레임이 붙어야 한다
@@ -1207,12 +1209,19 @@ void kUserTest(const char* poParamBuff)
 		if(0 == kMemCmp(vcParam, "demand", 7)) {
 			bDemand = TRUE;
 		}
+		else if(0 == kMemCmp(vcParam, "fork", 5)) {
+			bFork = TRUE;
+		}
 		else {
 			bBad = TRUE;
 		}
 	}
 
-	if(TRUE == bDemand) {
+	if(TRUE == bFork) {
+		pcStub = kUserForkStubStart;
+		qwStubLen = (QWORD)(kUserForkStubEnd - kUserForkStubStart);
+	}
+	else if(TRUE == bDemand) {
 		pcStub = kUserDemandStubStart;
 		qwStubLen = (QWORD)(kUserDemandStubEnd - kUserDemandStubStart);
 	}
@@ -1270,12 +1279,12 @@ void kUserTest(const char* poParamBuff)
 
 	// demand 모드에서는 VMA만 만들고 프레임은 붙이지 않는다. 스택도 힙도
 	// 처음 건드릴 때 폴트 핸들러가 채워야 한다
-	if(TRUE == bDemand) {
+	if((TRUE == bDemand) || (TRUE == bFork)) {
 		kVmaCreate(poMm, USER_HEAP_VA,
 				USER_HEAP_VA + ((QWORD)USER_HEAP_PAGES * PAGE_SIZE), VM_READ | VM_WRITE);
 	}
 
-	for(i=0; (FALSE == bDemand) && (i<USER_STACK_PAGES); ++i) {
+	for(i=0; (FALSE == bDemand) && (FALSE == bFork) && (i<USER_STACK_PAGES); ++i) {
 		vqStackPhys[i] = kAllocPage();
 		if(0 == vqStackPhys[i]) {
 			bOk = FALSE;
@@ -1306,6 +1315,8 @@ void kUserTest(const char* poParamBuff)
 	}
 
 	qwDemandBefore = kGetDemandPageCount();
+	qwCowBefore = kGetCowCopyCount();
+	qwCowReuseBefore = kGetCowReuseCount();
 	kPrintf("entering ring3...\n");
 
 	bPrevFlag = kSetInterruptFlag(FALSE);
@@ -1318,7 +1329,7 @@ void kUserTest(const char* poParamBuff)
 	else {
 		// 스텁은 무한루프라 스스로 끝나지 않는다. 잠깐 돌려 보고 걷어낸다
 		qwStartTick = g_qwTickCount;
-		while((g_qwTickCount - qwStartTick) < 100) {
+		while((g_qwTickCount - qwStartTick) < ((TRUE == bFork) ? 400 : 100)) {
 			kSchedule();
 		}
 
@@ -1341,17 +1352,26 @@ void kUserTest(const char* poParamBuff)
 					vcHex, USER_HEAP_PAGES + 1);
 		}
 
+		if(TRUE == bFork) {
+			kUIToDecString(kGetCowCopyCount() - qwCowBefore, vcHex);
+			kPrintf("cow copies=%s reuses=%q\n", vcHex,
+					kGetCowReuseCount() - qwCowReuseBefore);
+		}
+
 		kPrintf("task %s  killed so far=%q\n",
 				(0 != (poTask->qwFlag & TASK_FLAG_DEAD)) ? "died (SEGV)" : "still alive",
 				kGetKilledTaskCount());
 
-		// 스스로 죽었으면 kEndTask가 ready 리스트 대신 DEAD 표시를 보고 반납한다
-		kEndTask(poTask->stLink.qwID);
-		kPrintf("ring3 task reaped, shell alive\n");
+		// fork가 만든 자식은 셸이 모르는 태스크다. 주소공간을 가진 것을 전부
+		// 걷어낸다. 각 태스크가 자기 mm을 소유하므로 여기서 다 정리된다
+		kPrintf("reaped %d user task(s), shell alive\n", kEndAllUserTasks());
 	}
 
-	// 코드/스택 프레임은 전부 주소공간에 매핑돼 있다. kMmDestroy가 반납한다
-	kMmDestroy(poMm);
+	// 태스크가 mm을 소유한다. kEndAllUserTasks가 이미 kMmDestroy까지 했으므로
+	// 여기서 또 부르면 이중 해제다. 태스크를 못 만든 경우에만 직접 정리한다
+	if(NULL == poTask) {
+		kMmDestroy(poMm);
+	}
 
 	kPrintf("free before=%q after=%q %s\n", qwFreeBefore, kGetFreePageCount(),
 			(qwFreeBefore == kGetFreePageCount()) ? "OK" : "LEAK");
