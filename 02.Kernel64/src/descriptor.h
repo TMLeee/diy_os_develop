@@ -41,19 +41,27 @@
 #define GDT_FLAG_UPPER_DATA		( GDT_FLAG_UPPER_G | GDT_FLAG_UPPER_L )
 #define GDT_FLAG_UPPER_TSS		( GDT_FLAG_UPPER_G )
 
-// 세그먼트 디스크립션 오프셋
+// [NULL][KCODE][KDATA][UDATA][UCODE][TSS(16B)] 순서.
+// sysret을 쓰게 되면 IA32_STAR[63:48]=0x10이 그대로 SS=0x18|3, CS=0x20|3을
+// 만들어 준다. TSS를 앞에 두면 STAR 베이스가 16바이트 TSS의 상반부가 된다
 #define GDT_KERNEL_CODE_SEGMENT		0x08
 #define GDT_KENNEL_DATA_SEGMENT		0x10
-#define GDT_TSS_SEGMENT				0x18
+#define GDT_USER_DATA_SEGMENT		0x18
+#define GDT_USER_CODE_SEGMENT		0x20
+#define GDT_TSS_SEGMENT				0x28
+
+// ring3에 실제로 적재하는 값. RPL 3이 빠지면 iretq가 권한 전환을 하지 않는다
+#define GDT_USER_CODE_SELECTOR		(GDT_USER_CODE_SEGMENT | 0x03)
+#define GDT_USER_DATA_SELECTOR		(GDT_USER_DATA_SEGMENT | 0x03)
 
 // 기타 GDT 메크로
 // GDT 시작 주소
 // 페이지 테이블 영역: 1MB 부터 264KB
 #define GDTR_START_ADDR		0x142000
 
-// 8바이트 앤트리 갯수
-// Null Descriptor, Kernel Code, Kernel Data
-#define GDTR_8BYTE_ENT_SIZE		3
+// 8바이트 엔트리 갯수. 전부 TSS 앞에 온다
+// Null, Kernel Code, Kernel Data, User Data, User Code
+#define GDTR_8BYTE_ENT_SIZE		5
 
 // 16바이트 앤트리 갯수
 // TSS
@@ -83,7 +91,12 @@
 
 // IDT 관련 메크로
 // IDT 엔크리 갯수
-#define IDT_ENTRY_SIZE		100
+// int 0x80은 벡터 128이다. 100개짜리 테이블에서는 IDT limit 밖이라
+// 핸들러로 못 들어가고 #GP가 난다. 0x142000 한 페이지 상한은 244개
+#define IDT_ENTRY_SIZE		129
+
+// 시스템 콜 벡터. descriptor.c가 게이트를 걸어야 해서 여기 둔다
+#define SYSCALL_VECTOR		0x80
 
 // IDTR 시작 주소. TSS 세그먼트 다음에 위치
 #define IDTR_START_ADDR		(GDTR_START_ADDR + sizeof(GDTR) + GDT_TBL_SIZE + TSS_SEGMENT_SIZE)
@@ -164,6 +177,7 @@ void kSetGDTEntry8(GDTEntry8_t *poEntry, DWORD dwBaseAddr, DWORD dwLimit,
 void kSetGDTEntry16(GDTEntry16_t *poEntry, QWORD qwBaseAddr, DWORD dwLimit,
 				BYTE ucUppFlag, BYTE ucLowFlag, BYTE ucType);
 void kInitTSSSegment(TSSSegment_t *poTSS);
+void kSetTSSRsp0(QWORD qwRsp0);
 void kInitTDTTable(void);
 void kSetIDTEntry(IDTEntry_t *poEntry, void* pvHandler, WORD wSelector,
 				BYTE ucIST, BYTE ucFlag, BYTE ucType);

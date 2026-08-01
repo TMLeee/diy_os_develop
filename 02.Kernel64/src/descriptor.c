@@ -11,6 +11,18 @@
 #include "isr.h"
 
 
+// ring3 -> ring0 전이 때 CPU가 여기서 RSP를 가져온다. 태스크 전환마다 갱신해야 한다
+static TSSSegment_t* g_poTSS = NULL;
+
+
+void kSetTSSRsp0(QWORD qwRsp0)
+{
+	if(NULL != g_poTSS) {
+		g_poTSS->qwRsp[0] = qwRsp0;
+	}
+}
+
+
 void kInitGDTTableAndTSS(void)
 {
 	GDTR* poGDTR;
@@ -26,14 +38,23 @@ void kInitGDTTableAndTSS(void)
 	// TSS 영역 설정
 	poTSS = (TSSSegment_t*) ((QWORD)poEntry + GDT_TBL_SIZE);
 
-	// NULL, 64Bit, Code/Data, TSS - 4개의 세그먼트 생성
+	// NULL, KCode, KData, UData, UCode, TSS
+	// poTSS는 물리주소(GDTR_START_ADDR=0x142000)이고 identity 매핑이므로
+	// 디스크립터 베이스에 그대로 넣는다. __va()/__pa()를 끼우면 안 된다
 	kSetGDTEntry8(&(poEntry[0]), 0, 0, 0, 0, 0);
 	kSetGDTEntry8(&(poEntry[1]), 0, 0xFFFFF, GDT_FLAG_UPPER_CODE, GDT_FLAG_LOWER_KERNELCODE, GDT_TYPE_CODE);
 	kSetGDTEntry8(&(poEntry[2]), 0, 0xFFFFF, GDT_FLAG_UPPER_DATA, GDT_FLAG_LOWER_KERNELDATA, GDT_TYPE_DATA);
-	kSetGDTEntry16((GDTEntry16_t*) &(poEntry)[3], (QWORD)poTSS, sizeof(TSSSegment_t) - 1, GDT_FLAG_UPPER_TSS,
+	kSetGDTEntry8(&(poEntry[3]), 0, 0xFFFFF, GDT_FLAG_UPPER_DATA, GDT_FLAG_LOWER_USERDATA, GDT_TYPE_DATA);
+	kSetGDTEntry8(&(poEntry[4]), 0, 0xFFFFF, GDT_FLAG_UPPER_CODE, GDT_FLAG_LOWER_USERCODE, GDT_TYPE_CODE);
+
+	// 16바이트 TSS 디스크립터는 8바이트 슬롯 두 개를 먹는다.
+	// 인덱스를 상수로 박지 말고 GDTR_8BYTE_ENT_SIZE에서 유도한다
+	kSetGDTEntry16((GDTEntry16_t*) &(poEntry[GDTR_8BYTE_ENT_SIZE]),
+					(QWORD)poTSS, sizeof(TSSSegment_t) - 1, GDT_FLAG_UPPER_TSS,
 					GDT_FLAG_LOWER_TSS, GDT_TYPE_TSS);
 
 	// TSS 초기화
+	g_poTSS = poTSS;
 	kInitTSSSegment(poTSS);
 }
 
