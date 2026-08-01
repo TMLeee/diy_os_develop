@@ -556,8 +556,10 @@ void kPageWalkTest(const char* poParamBuff)
 void kPageProtTest(const char* poParamBuff)
 {
 	QWORD qwFrame;
-	volatile QWORD* pqwIdent;
+	volatile QWORD* pqwAlias;
 	volatile QWORD* pqwDirect;
+	// 커널이 쓰지 않는 저주소 한 장. 유저 텍스트가 앉을 자리이기도 하다
+	#define PGTEST_ALIAS_VA	0x400000UL
 	char vcHex[17];
 
 	static const char* vpcSect[3] = {"text", "rodata", "data"};
@@ -593,32 +595,34 @@ void kPageProtTest(const char* poParamBuff)
 		return;
 	}
 
-	pqwIdent = (volatile QWORD*)qwFrame;
+	// identity 별칭은 이제 없다. 대신 저주소에 4KB 별칭을 직접 만들어
+	// direct map과 같은 프레임을 보는지 확인한다. identity를 걷어낸 덕분에
+	// 이 매핑이 가능해졌다는 것까지 한 번에 검사된다
 	pqwDirect = (volatile QWORD*)__va(qwFrame);
-
-	// identity로 쓰고 direct map으로 읽는다. 같은 프레임이어야 한다
-	*pqwIdent = 0xFEEDFACECAFEBEEF;
 	kToHexString(qwFrame, vcHex, 12);
 	kPrintf("frame %s: ", vcHex);
 
-	if(0xFEEDFACECAFEBEEF == *pqwDirect) {
-		kPrintf("ident->direct OK  ");
+	if(FALSE == kMapPage(kReadCR3(), PGTEST_ALIAS_VA, qwFrame, PTE_RW | PTE_NX)) {
+		kPrintf("low alias map FAILED\n");
+		kFreePage(qwFrame);
+		return;
 	}
-	else {
-		kPrintf("ident->direct MISMATCH  ");
-	}
+	pqwAlias = (volatile QWORD*)PGTEST_ALIAS_VA;
+
+	*pqwAlias = 0xFEEDFACECAFEBEEF;
+	kPrintf("%s  ", (0xFEEDFACECAFEBEEF == *pqwDirect) ? "alias->direct OK" : "alias->direct MISMATCH");
 
 	// 반대 방향도 확인
 	*pqwDirect = 0x0123456789ABCDEF;
-	if(0x0123456789ABCDEF == *pqwIdent) {
-		kPrintf("direct->ident OK\n");
-	}
-	else {
-		kPrintf("direct->ident MISMATCH\n");
-	}
+	kPrintf("%s\n", (0x0123456789ABCDEF == *pqwAlias) ? "direct->alias OK" : "direct->alias MISMATCH");
 
 	kToHexString((QWORD)pqwDirect, vcHex, 16);
 	kPrintf("direct map VA = %s\n", vcHex);
+
+	// 저주소가 정말 비어 있어야 유저 주소공간이 들어간다
+	kUnmapPage(kReadCR3(), PGTEST_ALIAS_VA);
+	kPrintf("low half %s\n",
+			(0 == kVirtToPhys(kReadCR3(), PGTEST_ALIAS_VA)) ? "clear (no identity map)" : "STILL MAPPED");
 
 	kFreePage(qwFrame);
 }
@@ -659,7 +663,8 @@ void kAllocTest(const char* poParamBuff)
 			kPrintf("MISALIGNED at %d\n", iGot);
 			break;
 		}
-		*(volatile QWORD*)vqAddr[iGot] = 0xA5A5A5A5A5A5A5A5;
+		// kAllocPages는 물리주소를 준다. 만지려면 direct map을 거쳐야 한다
+		*(volatile QWORD*)__va(vqAddr[iGot]) = 0xA5A5A5A5A5A5A5A5;
 	}
 
 	kUIToDecString((QWORD)iGot, vcNum);
@@ -668,7 +673,7 @@ void kAllocTest(const char* poParamBuff)
 
 	// 패턴 검증 후 해제
 	for(i=0; i<iGot; ++i) {
-		if(0xA5A5A5A5A5A5A5A5 != *(volatile QWORD*)vqAddr[i]) {
+		if(0xA5A5A5A5A5A5A5A5 != *(volatile QWORD*)__va(vqAddr[i])) {
 			kPrintf("PATTERN CORRUPT at %d\n", i);
 		}
 		kFreePages(vqAddr[i], iOrder);

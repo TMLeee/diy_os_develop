@@ -80,7 +80,7 @@ want "kernel image still reserved" 'frame 000000200000: RESERVED' "$s2"
 
 sect "paging: 4KB split, W^X flags, direct map"
 # walk the HIGH alias - that is where the kernel executes and where the 4KB
-# split lives. The identity alias is still a 2MB page by design.
+# split lives. There is no identity alias any more - the low half is empty.
 s=$(CMD_WAIT=3 "$WORK/bootcheck.sh" 'cls' 'pgtest' 'pgwalk FFFFFFFF80202000' 2>&1)
 # pgtest locates the sections from the linker symbols, so this does not go
 # stale when the kernel grows and the boundaries move
@@ -92,8 +92,9 @@ want "4KB pages over kernel image"  '4KB page' "$s"
 want "kernel executes from high alias" 'VA FFFFFFFF80202000.*|-> PA 000000202000' "$s"
 want "CR0.WP on"                    'WP=on' "$s"
 want "NX supported"                 'NX=supported' "$s"
-want "direct map ident->direct"     'ident->direct OK' "$s"
-want "direct map direct->ident"     'direct->ident OK' "$s"
+want "direct map alias->direct"     'alias->direct OK' "$s"
+want "low half has no identity map" 'low half clear' "$s"
+want "direct map direct->alias"     'direct->alias OK' "$s"
 want "direct map VA"                'direct map VA = FFFF8000' "$s"
 
 sect "slab + kmalloc"

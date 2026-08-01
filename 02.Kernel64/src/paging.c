@@ -369,14 +369,9 @@ BOOL kInitializePaging(void)
 	}
 	kMemSet(__va(qwPML4), 0, PAGE_SIZE);
 
-	// 1) RAM 전체를 identity 매핑한다. 0xB8000, 0x700000 IST, 0x800000 TCB 풀 등
-	//    하드코딩된 물리주소가 전부 그대로 동작해야 하므로 반드시 전 범위
-	if(FALSE == kMapRange2M(qwPML4, 0, 0, qwHighest,
-				PTE_RW | PTE_G | qwNXFlag)) {
-		return FALSE;
-	}
-
-	// 2) 같은 물리 메모리를 PAGE_OFFSET에 한 번 더(direct map)
+	// 1) RAM 전체를 PAGE_OFFSET에 매핑한다(direct map).
+	//    identity 매핑은 만들지 않는다 - 저주소 전체가 비어야 유저 주소공간이
+	//    거기에 들어갈 수 있고, 2MB 리프가 kMapPage()의 4KB 매핑을 막지 않는다
 	if(FALSE == kMapRange2M(qwPML4, PAGE_OFFSET, 0, qwHighest,
 				PTE_RW | PTE_G | qwNXFlag)) {
 		return FALSE;
