@@ -410,7 +410,8 @@ void kPrintPhysicalMemoryStat(void)
 	kUIToDecString((g_qwTotalPages * PAGE_SIZE) / 0x100000, vcTotal);
 	kPrintf("memory free=%sMB of %sMB\n", vcFree, vcTotal);
 
-	kToHexString((QWORD)g_poMemMap, vcHex, 12);
+	// g_poMemMap은 이제 direct map 주소다. 물리로 환산해 보여 준다
+	kToHexString(__pa(g_poMemMap), vcHex, 12);
 	kUIToDecString(g_qwTotalPages * sizeof(page_t) / 1024, vcTotal);
 	kPrintf("mem_map at %s (%sKB)\n", vcHex, vcTotal);
 

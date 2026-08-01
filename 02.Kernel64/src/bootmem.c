@@ -92,9 +92,10 @@ void* kBootmemAlloc(QWORD qwSize)
 	qwAddr = g_qwBootmemNext;
 	g_qwBootmemNext += qwSize;
 
-	// identity 매핑이므로 물리주소를 그대로 포인터로 쓸 수 있다
-	kMemSet((void*)qwAddr, 0, (int)qwSize);
-	return (void*)qwAddr;
+	// 물리 프레임을 direct map을 통해 만진다. 반환값도 가상주소다 -
+	// 호출자는 이걸 그대로 역참조하므로 identity 맵이 사라져도 유효해야 한다
+	kMemSet(__va(qwAddr), 0, (int)qwSize);
+	return __va(qwAddr);
 }
 
 
