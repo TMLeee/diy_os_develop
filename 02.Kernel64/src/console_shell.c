@@ -46,7 +46,8 @@ ShellCmdEntry_t gtCommandTable[] =
 		{"vmalloctest", "vmalloc + Guard Page Test, ex)vmalloctest 4", kVmallocTest},
 		{"ticks", "Show Timer Tick Count", kShowTickCount},
 		{"stackoverflow", "Deliberate Kernel Stack Overflow", kStackOverflowTest},
-		{"frameinfo", "Show One Frame's State, ex)frameinfo 100000", kShowFrameInfo}
+		{"frameinfo", "Show One Frame's State, ex)frameinfo 100000", kShowFrameInfo},
+		{"maptest", "Try kMapPage At A VA, ex)maptest 100000000", kMapTest}
 };
 
 
@@ -885,4 +886,44 @@ void kShowFrameInfo(const char* poParamBuff)
 			(poPage->qwFlags & PG_SLAB) ? "slab " : "",
 			(0 == poPage->qwFlags) ? "in-use " : "",
 			poPage->iOrder, poPage->iRefCount);
+}
+
+
+// 임의의 가상주소에 프레임을 매핑해 본다. 유저 공간을 어디에 둘 수 있는지
+// 판단하려면 "여기에 kMapPage가 되는가"를 실측해야 한다
+void kMapTest(const char* poParamBuff)
+{
+	ParamList_t stList;
+	char vcParam[30], vcHex[17];
+	QWORD qwVirtAddr, qwPhys;
+	volatile QWORD* pqw;
+
+	kInitializeParam(&stList, poParamBuff);
+	if(0 == kGetNextParam(&stList, vcParam)) {
+		kPrintf("ex) maptest 100000000\n");
+		return;
+	}
+	qwVirtAddr = PAGE_ALIGN_DOWN((QWORD)kAToI(vcParam, 16));
+
+	qwPhys = kAllocPage();
+	if(0 == qwPhys) {
+		kPrintf("alloc failed\n");
+		return;
+	}
+
+	kToHexString(qwVirtAddr, vcHex, 16);
+	if(FALSE == kMapPage(kReadCR3(), qwVirtAddr, qwPhys,
+				PTE_RW | (kIsNXSupported() ? PTE_NX : 0))) {
+		kPrintf("VA %s: kMapPage FAILED (blocked by an existing 2MB page)\n", vcHex);
+		kFreePage(qwPhys);
+		return;
+	}
+
+	pqw = (volatile QWORD*)qwVirtAddr;
+	*pqw = 0xC0FFEE0000BEEF;
+	kPrintf("VA %s: mapped, readback %s\n", vcHex,
+			(0xC0FFEE0000BEEF == *pqw) ? "OK" : "MISMATCH");
+
+	kUnmapPage(kReadCR3(), qwVirtAddr);
+	kFreePage(qwPhys);
 }
