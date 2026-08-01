@@ -22,6 +22,7 @@
 #include "task.h"
 #include "syscall.h"
 #include "mm_struct.h"
+#include "descriptor.h"
 
 
 ShellCmdEntry_t gtCommandTable[] =
@@ -52,7 +53,8 @@ ShellCmdEntry_t gtCommandTable[] =
 		{"maptest", "Try kMapPage At A VA, ex)maptest 100000000", kMapTest},
 		{"syscalltest", "Exercise The int 0x80 Path", kSyscallTest},
 		{"mmtest", "Build A User Address Space And Switch To It", kMmTest},
-		{"cr3test", "Run A Task Bound To Its Own Address Space", kCR3Test}
+		{"cr3test", "Run A Task Bound To Its Own Address Space", kCR3Test},
+		{"usertest", "Load A ring3 Program And Run It", kUserTest}
 };
 
 
@@ -1066,7 +1068,7 @@ void kMmTest(const char* poParamBuff)
 	kPrintf("user write via CR3 switch: %s\n",
 			(0x5EE0FF1CE0000001 == *(volatile QWORD*)__va(qwPhys)) ? "OK" : "MISMATCH");
 
-	kFreePage(qwPhys);
+	// 매핑된 프레임은 kMmDestroy가 반납한다. 여기서 또 부르면 이중 해제다
 	kMmDestroy(poMm);
 
 	qwFreeAfter = kGetFreePageCount();
@@ -1161,9 +1163,138 @@ void kCR3Test(const char* poParamBuff)
 			(PTE_ADDR(kReadCR3()) == PTE_ADDR(poMm->qwPML4)) ? "yes (lazy TLB)" : "no");
 
 	kEndTask(poTask->stLink.qwID);
-	kFreePage(qwPhys);
+	// qwPhys는 주소공간에 매핑돼 있으므로 kMmDestroy가 반납한다
 	kMmDestroy(poMm);
 
 	kPrintf("after destroy cr3 is kernel: %s\n",
 			(PTE_ADDR(kReadCR3()) == PTE_ADDR(kGetKernelCR3())) ? "OK" : "BAD");
+}
+
+// user_stub.asm이 커널 .text 안에 링크돼 있다. 유저 페이지로 복사해서 ring3로
+// 내려보낸다. 스텁이 sys_write로 찍는 줄이 보이면 ring3 -> int 0x80 -> TSS.rsp0
+// -> 디스패처 -> iretq 경로가 전부 살아 있다는 뜻이다
+extern char kUserStubStart[];
+extern char kUserStubEnd[];
+
+#define USER_CODE_VA	0x400000UL
+#define USER_STACK_PAGES	4
+
+void kUserTest(const char* poParamBuff)
+{
+	mm_t* poMm;
+	TCB_t* poTask;
+	QWORD qwCodePhys, vqStackPhys[USER_STACK_PAGES];
+	QWORD qwStackBase, qwStubLen, qwStartTick, qwFreeBefore;
+	void* pvWarm;
+	char vcHex[17];
+	int i, iStackGot = 0;
+	BOOL bPrevFlag, bOk = TRUE;
+
+	qwStubLen = (QWORD)(kUserStubEnd - kUserStubStart);
+	if((0 == qwStubLen) || (PAGE_SIZE < qwStubLen)) {
+		kPrintf("stub size %q is not usable\n", qwStubLen);
+		return;
+	}
+
+	// 기준선을 잡기 전에 일회성 증가분을 미리 소화한다. 이 커널의 첫
+	// kVmapPages는 vmalloc_area 슬랩 한 장과 vmalloc 영역의 PD/PT를 만드는데,
+	// 그 테이블들은 kVfree 후에도 재사용을 위해 남는다. 누수가 아니다
+	poMm = kMmCreate();
+	if(NULL != poMm) {
+		kVmaCreate(poMm, USER_CODE_VA, USER_CODE_VA + PAGE_SIZE, VM_READ);
+		kMmDestroy(poMm);
+	}
+	pvWarm = kVmapPages(TASK_STACK_PAGES, 1, 0);
+	if(NULL != pvWarm) {
+		kVfree(pvWarm);
+	}
+	qwFreeBefore = kGetFreePageCount();
+
+	poMm = kMmCreate();
+	if(NULL == poMm) {
+		kPrintf("kMmCreate failed\n");
+		return;
+	}
+
+	// 코드 페이지: 복사는 direct map으로, 매핑은 US + 실행 가능(NX 없음)
+	qwCodePhys = kAllocPage();
+	if(0 == qwCodePhys) {
+		kPrintf("alloc failed\n");
+		kMmDestroy(poMm);
+		return;
+	}
+	kMemSet(__va(qwCodePhys), 0, PAGE_SIZE);
+	kMemCpy(__va(qwCodePhys), kUserStubStart, (int)qwStubLen);
+
+	kVmaCreate(poMm, USER_CODE_VA, USER_CODE_VA + PAGE_SIZE, VM_READ | VM_EXEC);
+	if(FALSE == kMmMapPage(poMm, USER_CODE_VA, qwCodePhys, VM_READ | VM_EXEC)) {
+		bOk = FALSE;
+	}
+
+	// 유저 스택: 유저 절반 꼭대기에서 아래로
+	qwStackBase = USER_STACK_TOP - ((QWORD)USER_STACK_PAGES * PAGE_SIZE);
+	kVmaCreate(poMm, qwStackBase, USER_STACK_TOP, VM_READ | VM_WRITE | VM_GROWSDOWN);
+	for(i=0; i<USER_STACK_PAGES; ++i) {
+		vqStackPhys[i] = kAllocPage();
+		if(0 == vqStackPhys[i]) {
+			bOk = FALSE;
+			break;
+		}
+		++iStackGot;
+		kMemSet(__va(vqStackPhys[i]), 0, PAGE_SIZE);
+		if(FALSE == kMmMapPage(poMm, qwStackBase + ((QWORD)i * PAGE_SIZE),
+							vqStackPhys[i], VM_READ | VM_WRITE)) {
+			bOk = FALSE;
+			break;
+		}
+	}
+
+	kToHexString(qwStubLen, vcHex, 4);
+	kPrintf("stub %s bytes at ", vcHex);
+	kToHexString(USER_CODE_VA, vcHex, 8);
+	kPrintf("%s  stack pages %d  map %s\n", vcHex, iStackGot,
+			(TRUE == bOk) ? "OK" : "FAILED");
+
+	if(FALSE == bOk) {
+		for(i=0; i<iStackGot; ++i) {
+			kFreePage(vqStackPhys[i]);
+		}
+		kFreePage(qwCodePhys);
+		kMmDestroy(poMm);
+		return;
+	}
+
+	kPrintf("entering ring3...\n");
+
+	bPrevFlag = kSetInterruptFlag(FALSE);
+	poTask = kCreateUserTask(poMm, USER_CODE_VA, USER_STACK_TOP);
+	kSetInterruptFlag(bPrevFlag);
+
+	if(NULL == poTask) {
+		kPrintf("kCreateUserTask failed\n");
+	}
+	else {
+		// 스텁은 무한루프라 스스로 끝나지 않는다. 잠깐 돌려 보고 걷어낸다
+		qwStartTick = g_qwTickCount;
+		while((g_qwTickCount - qwStartTick) < 100) {
+			kSchedule();
+		}
+
+		// 선점될 때 CPU가 밀어 넣은 CS가 TCB에 저장돼 있다. 0x23이면 그 태스크가
+		// 실제로 ring3에서 돌고 있었다는 증거다 - 출력만으로는 알 수 없다
+		kPrintf("saved CS=%q CPL=%d %s\n",
+				poTask->tContext.vqRegister[TASK_CS_OFFSET],
+				(int)(poTask->tContext.vqRegister[TASK_CS_OFFSET] & 0x03),
+				(GDT_USER_CODE_SELECTOR ==
+					poTask->tContext.vqRegister[TASK_CS_OFFSET]) ? "ring3" : "NOT ring3");
+
+		kEndTask(poTask->stLink.qwID);
+		kPrintf("ring3 task ended\n");
+	}
+
+	// 코드/스택 프레임은 전부 주소공간에 매핑돼 있다. kMmDestroy가 반납한다
+	kMmDestroy(poMm);
+
+	kPrintf("free before=%q after=%q %s\n", qwFreeBefore, kGetFreePageCount(),
+			(qwFreeBefore == kGetFreePageCount()) ? "OK" : "LEAK");
 }

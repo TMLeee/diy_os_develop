@@ -118,6 +118,7 @@ TCB_t *kAllocateTCB(void);
 void kFreeTCB(QWORD qwID);
 TCB_t* kCreateTask(QWORD qwFlag, QWORD qwEntryPointAddr);
 void kSetTaskMm(TCB_t* poTask, mm_t* poMm);
+TCB_t* kCreateUserTask(mm_t* poMm, QWORD qwEntryAddr, QWORD qwUserStackTop);
 BOOL kEndTask(QWORD qwTaskID);
 void kSetupTask(TCB_t* poTCB, QWORD qwFlag, QWORD qwEntryPointAddr,
 	void *poStackAddr, QWORD qwStackSize);

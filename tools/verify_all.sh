@@ -176,5 +176,15 @@ want "kernel thread borrows CR3" 'shell borrowed mm cr3: yes' "$s"
 want "destroy restores kernel CR3" 'after destroy cr3 is kernel: OK' "$s"
 deny "no fault during the switch" 'KERNEL PANIC|Exception Occurred' "$s"
 
+sect "ring3: user mode and a syscall from it"
+s=$(CMD_WAIT=5 "$WORK/bootcheck.sh" 'cls' 'usertest' 2>&1)
+want "user image mapped"        'stub [0-9A-F]+ bytes at 00400000  stack pages 4  map OK' "$s"
+# printed by the ring3 stub itself, so the whole int 0x80 path ran from user mode
+want "sys_write from ring3"     'ring3 syscall ok' "$s"
+# the CPU pushed this CS when it preempted the task - output alone proves nothing
+want "task really was at CPL 3" 'saved CS=23 CPL=3 ring3' "$s"
+want "address space reclaimed"  'free before=[0-9A-F]+ after=[0-9A-F]+ OK' "$s"
+deny "no fault in user mode"    'KERNEL PANIC|Exception Occurred' "$s"
+
 echo "=============== $pass passed, $fail failed ==============="
 exit $([ "$fail" -eq 0 ] && echo 0 || echo 1)

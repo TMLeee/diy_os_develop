@@ -125,6 +125,50 @@ TCB_t* kCreateTask(QWORD qwFlag, QWORD qwEntryPointAddr)
 }
 
 
+// ring3 태스크. kCreateTask와 다른 점은 세그먼트가 유저 셀렉터이고 RSP가
+// 유저 스택이라는 것뿐이다. vmalloc 스택은 여기서 커널 스택 역할을 한다
+TCB_t* kCreateUserTask(mm_t* poMm, QWORD qwEntryAddr, QWORD qwUserStackTop)
+{
+	TCB_t* poTask;
+	void* pvKernelStack;
+
+	if(NULL == poMm) {
+		return NULL;
+	}
+
+	poTask = kAllocateTCB();
+	if(NULL == poTask) {
+		return NULL;
+	}
+
+	pvKernelStack = kVmapPages(TASK_STACK_PAGES, 1, 0);
+	if(NULL == pvKernelStack) {
+		kFreeTCB(poTask->stLink.qwID);
+		return NULL;
+	}
+
+	kSetupTask(poTask, 0, qwEntryAddr, pvKernelStack, TASK_STACK_SIZE);
+
+	poTask->tContext.vqRegister[TASK_CS_OFFSET] = GDT_USER_CODE_SELECTOR;
+	poTask->tContext.vqRegister[TASK_DS_OFFSET] = GDT_USER_DATA_SELECTOR;
+	poTask->tContext.vqRegister[TASK_ES_OFFSET] = GDT_USER_DATA_SELECTOR;
+	poTask->tContext.vqRegister[TASK_FS_OFFSET] = GDT_USER_DATA_SELECTOR;
+	poTask->tContext.vqRegister[TASK_GS_OFFSET] = GDT_USER_DATA_SELECTOR;
+	poTask->tContext.vqRegister[TASK_SS_OFFSET] = GDT_USER_DATA_SELECTOR;
+
+	// kSetupTask가 넣어 둔 커널 스택 대신 유저 스택을 쓴다
+	poTask->tContext.vqRegister[TASK_RSP_OFFSET] = qwUserStackTop;
+	poTask->tContext.vqRegister[TASK_RBP_OFFSET] = qwUserStackTop;
+
+	// 리스트에 올리기 전에 주소공간을 붙여야 한다. 순서가 바뀌면 첫 스케줄에서
+	// 커널 CR3로 유저 코드를 실행하러 간다
+	kSetTaskMm(poTask, poMm);
+	kAddTaskToReadyList(poTask);
+
+	return poTask;
+}
+
+
 // 태스크를 정리한다. 이 커널이 스택을 반납하는 최초의 경로
 void kFreeTask(TCB_t* poTask)
 {
@@ -253,6 +297,17 @@ void kSetTaskMm(TCB_t* poTask, mm_t* poMm)
 
 // 커널 스레드(qwCR3==0)는 현재 주소공간을 그대로 빌려 쓴다. 커널 절반이 모든
 // 주소공간에서 동일하므로 안전하고, 전환마다 TLB를 비우지 않아도 된다
+// int 0x80은 IST를 쓰지 않으므로 ring3에서 들어오면 CPU가 TSS.rsp0를 집는다.
+// 태스크마다 커널 스택이 다르니 전환할 때마다 갱신해야 한다.
+// 커널 스레드는 스택이 없거나(부팅 스택) ring3로 내려갈 일이 없어 건너뛴다
+static void kSwitchKernelStack(TCB_t* poNext)
+{
+	if(NULL != poNext->pvStackAddr) {
+		kSetTSSRsp0((QWORD)poNext->pvStackAddr + poNext->qwStackSize);
+	}
+}
+
+
 static void kSwitchAddressSpace(TCB_t* poNext)
 {
 	if(0 == poNext->qwCR3) {
@@ -287,6 +342,7 @@ void kSchedule(void)
 
 	gstScheduler.poRunningTask = poNextTask;
 	kSwitchAddressSpace(poNextTask);
+	kSwitchKernelStack(poNextTask);
 	kSwitchContext(&(poRunningTask->tContext), &(poNextTask->tContext));
 
 	kSetInterruptFlag(bPrevFlag);
@@ -316,6 +372,7 @@ BOOL kScheduleInInterrunt(void)
 
 	// IST 스택과 복귀 경로는 커널 절반에 있으므로 여기서 CR3를 바꿔도 된다
 	kSwitchAddressSpace(poNextTask);
+	kSwitchKernelStack(poNextTask);
 
 	gstScheduler.iProcessorTime = TASK_PROCESSOR_TIME;
 	return TRUE;
