@@ -38,6 +38,12 @@
 #define PAGE_HIGH_PDPT		0x112000
 #define PAGE_HIGH_PD		0x113000
 
+// direct map(PAGE_OFFSET, PML4[256])용 PDPT. bootmem/pmm이 kInitializePaging
+// 보다 먼저 도는데 그때부터 __va()가 유효해야 하므로 부트 단계에 미리 깐다.
+// identity와 같은 물리 메모리를 같은 2MB 페이지로 덮으므로 PD는 새로 만들지
+// 않고 identity가 쓰는 것을 그대로 가리킨다 - 프레임 한 장이면 된다
+#define PAGE_DIRECT_PDPT	0x114000
+
 #pragma pack(push, 1)
 
 typedef struct kPageTblEntStruct {
