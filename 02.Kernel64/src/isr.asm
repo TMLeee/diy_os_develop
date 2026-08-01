@@ -4,7 +4,7 @@ SECTION .text
 
 ; Import
 extern kCommonExceptionHandler, kCommonInterruptHandler, kKeyboardHandler
-extern kTimerHandler
+extern kTimerHandler, kSyscallHandler
 
 ; Export
 ; 예외 처리를 위한 ISR
@@ -49,6 +49,9 @@ global kISRCoprocessor
 global kISRHDD1
 global kISRHDD2
 global kISRETCInterrupt
+
+; 시스템 콜
+global kISRSyscall
 
 ; 콘텍스트 저장 메크로
 %macro KSAVECONTEXT 0
@@ -530,6 +533,25 @@ kISRETCInterrupt:
 
 	KLOADCONTEXT
 	iretq
+
+
+
+
+;--------------------------------------------------------------------------------
+; 시스템 콜 - int 0x80
+; 에러코드가 없으므로 프레임이 정확히 Context_t 레이아웃이다.
+; IST를 쓰지 않는다(IST0) -> ring3에서 들어오면 CPU가 TSS.rsp0로 갈아탄다.
+; 반환값은 핸들러가 저장된 RAX 자리에 써 두고 KLOADCONTEXT가 pop한다
+kISRSyscall:
+	KSAVECONTEXT
+
+	; KSAVECONTEXT가 RDX에 프레임 주소를 넣어 둔다
+	mov rdi, rdx
+	call kSyscallHandler
+
+	KLOADCONTEXT
+	iretq
+
 
 ; 링커의 executable-stack 경고 억제
 section .note.GNU-stack noalloc noexec nowrite progbits

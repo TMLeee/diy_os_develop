@@ -159,6 +159,10 @@ void kInitTDTTable(void)
 		kSetIDTEntry(&(poEntry[i]), kISRETCInterrupt, 0x08, IDT_FLAG_IST1, IDT_FLAG_KENREL, IDT_TYPE_INTERRUPT);
 	}
 
+	// 시스템 콜. DPL3이어야 ring3의 int 0x80이 #GP를 맞지 않는다.
+	// IST0이라 ring3에서 들어오면 TSS.rsp0로, ring0에서면 현재 스택을 그대로 쓴다
+	kSetIDTEntry(&(poEntry[SYSCALL_VECTOR]), kISRSyscall, 0x08, IDT_FLAG_IST0,
+				IDT_FLAG_USER, IDT_TYPE_INTERRUPT);
 }
 
 

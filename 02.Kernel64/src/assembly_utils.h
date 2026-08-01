@@ -37,4 +37,6 @@ void kReadMSR(DWORD dwMSR, QWORD* pqwValue);
 void kWriteMSR(DWORD dwMSR, QWORD qwValue);
 
 
+QWORD kDoSyscall(QWORD qwNum, QWORD qwA1, QWORD qwA2, QWORD qwA3);
+
 #endif /* 02_KERNEL64_SRC_ASSEMBLY_UTILS_H_ */

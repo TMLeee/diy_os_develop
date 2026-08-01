@@ -20,6 +20,7 @@
 #include "slab.h"
 #include "vmalloc.h"
 #include "task.h"
+#include "syscall.h"
 
 
 ShellCmdEntry_t gtCommandTable[] =
@@ -47,7 +48,8 @@ ShellCmdEntry_t gtCommandTable[] =
 		{"ticks", "Show Timer Tick Count", kShowTickCount},
 		{"stackoverflow", "Deliberate Kernel Stack Overflow", kStackOverflowTest},
 		{"frameinfo", "Show One Frame's State, ex)frameinfo 100000", kShowFrameInfo},
-		{"maptest", "Try kMapPage At A VA, ex)maptest 100000000", kMapTest}
+		{"maptest", "Try kMapPage At A VA, ex)maptest 100000000", kMapTest},
+		{"syscalltest", "Exercise The int 0x80 Path", kSyscallTest}
 };
 
 
@@ -931,4 +933,34 @@ void kMapTest(const char* poParamBuff)
 
 	kUnmapPage(kReadCR3(), qwVirtAddr);
 	kFreePage(qwPhys);
+}
+
+// ring0에서 int 0x80을 직접 쳐서 게이트/디스패처/반환값 경로를 확인한다.
+// ring3 진입은 스텝 25d에서 붙는다
+void kSyscallTest(const char* poParamBuff)
+{
+	const char* pcMsg = "hello from int 0x80\n";
+	QWORD qwBefore, qwRet;
+
+	qwBefore = kGetSyscallCount();
+
+	qwRet = kDoSyscall(SYS_WRITE, 1, (QWORD)pcMsg, kStrLen(pcMsg));
+	kPrintf("sys_write  -> %d (len %d)\n", (int)qwRet, kStrLen(pcMsg));
+
+	qwRet = kDoSyscall(SYS_GETPID, 0, 0, 0);
+	kPrintf("sys_getpid -> %q  running=%q  %s\n", qwRet,
+			kGetRunningTask()->stLink.qwID,
+			(qwRet == kGetRunningTask()->stLink.qwID) ? "MATCH" : "MISMATCH");
+
+	qwRet = kDoSyscall(SYS_UPTIME, 0, 0, 0);
+	kPrintf("sys_uptime -> %q ticks\n", qwRet);
+
+	// 없는 번호는 -ENOSYS. 부호 확장이 살아 있는지도 같이 본다
+	qwRet = kDoSyscall(4242, 0, 0, 0);
+	kPrintf("bad call   -> %d (want -38)\n", (int)qwRet);
+
+	qwRet = kDoSyscall(SYS_WRITE, 99, (QWORD)pcMsg, 4);
+	kPrintf("bad fd     -> %d (want -9)\n", (int)qwRet);
+
+	kPrintf("dispatched %d syscalls\n", (int)(kGetSyscallCount() - qwBefore));
 }

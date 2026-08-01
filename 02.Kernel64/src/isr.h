@@ -52,5 +52,7 @@ void kISRHDD1(void);
 void kISRHDD2(void);
 void kISRETCInterrupt(void);
 
+void kISRSyscall(void);
+
 
 #endif /* 02_KERNEL64_SRC_ISR_H_ */

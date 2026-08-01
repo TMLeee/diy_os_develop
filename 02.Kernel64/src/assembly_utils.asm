@@ -314,5 +314,20 @@ kSwitchContext:
 	KLOADCONTEXT
 	iretq
 
+
+
+; QWORD kDoSyscall(QWORD qwNum, QWORD a1, QWORD a2, QWORD a3)
+; SysV 인자(rdi,rsi,rdx,rcx)를 시스템 콜 규약(rax,rdi,rsi,rdx)으로 옮긴다.
+; 각 mov는 원본을 덮기 전에 읽으므로 임시 레지스터가 필요 없다.
+; int 0x80은 인터럽트 게이트라 핸들러가 rcx/r11까지 복원해 준다
+global kDoSyscall
+kDoSyscall:
+	mov rax, rdi
+	mov rdi, rsi
+	mov rsi, rdx
+	mov rdx, rcx
+	int 0x80
+	ret
+
 ; 링커의 executable-stack 경고 억제
 section .note.GNU-stack noalloc noexec nowrite progbits

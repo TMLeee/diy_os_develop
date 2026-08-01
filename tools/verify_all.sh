@@ -138,5 +138,16 @@ want "20 tasks created"      'Task2 20 Created' "$s"
 deny "no exception in soak"  'Exception Occurred|KERNEL PANIC' "$s"
 
 echo
+sect "syscall: int 0x80 gate and dispatcher"
+s=$(CMD_WAIT=4 "$WORK/bootcheck.sh" 'cls' 'syscalltest' 2>&1)
+want "sys_write reaches the console" 'hello from int 0x80' "$s"
+want "sys_write returns the length"  'sys_write  -> 20 \(len 20\)' "$s"
+# ERE has no backreferences, so the kernel compares the two itself
+want "sys_getpid matches scheduler"  'sys_getpid -> [0-9A-F]+  running=[0-9A-F]+  MATCH' "$s"
+want "sys_uptime returns ticks"      'sys_uptime -> [0-9A-F]+ ticks' "$s"
+want "unknown call is -ENOSYS"       'bad call   -> -38' "$s"
+want "bad fd is -EBADF"              'bad fd     -> -9' "$s"
+want "every call dispatched"         'dispatched 5 syscalls' "$s"
+
 echo "=============== $pass passed, $fail failed ==============="
 exit $([ "$fail" -eq 0 ] && echo 0 || echo 1)
