@@ -56,6 +56,24 @@ void kReadTimeStampCounter(const char* poParamBuff);
 void kMeasureProcessorSpeed(const char* poParamBuff);
 void kShowDateAndTime(const char* poParamBuff);
 void kCreateTestTask(const char* poParamBuff);
+void kCrash(const char* poParamBuff);
+void kShowMemoryMap(const char* poParamBuff);
+void kShowPhysMemStat(const char* poParamBuff);
+void kAllocTest(const char* poParamBuff);
+void kPageWalkTest(const char* poParamBuff);
+void kPageProtTest(const char* poParamBuff);
+void kShowSlabInfo(const char* poParamBuff);
+void kKmallocTest(const char* poParamBuff);
+void kVmallocTest(const char* poParamBuff);
+void kShowTickCount(const char* poParamBuff);
+void kStackOverflowTest(const char* poParamBuff);
+void kShowFrameInfo(const char* poParamBuff);
+void kMapTest(const char* poParamBuff);
+void kSyscallTest(const char* poParamBuff);
+void kMmTest(const char* poParamBuff);
+void kCR3Test(const char* poParamBuff);
+void kUserTest(const char* poParamBuff);
+void kExec(const char* poParamBuff);
 
 
 #endif /* 02_KERNEL64_SRC_CONSOLE_SHELL_H_ */

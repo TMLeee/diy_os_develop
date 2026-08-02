@@ -11,22 +11,62 @@
 #include "pic.h"
 #include "keyboard.h"
 #include "console.h"
+#include "utility.h"
+#include "task.h"
+#include "descriptor.h"
+#include "panic.h"
+#include "vmalloc.h"
+#include "fault.h"
+#include "assembly_utils.h"
 
 
-void kCommonExceptionHandler(int iVectorNum, QWORD qwErrCode)
+void kTimerHandler(int iVectorNum)
 {
-	char vcBuffer[3] = {0,};
+	char vcBuf[] = "[INT:  , ]";
+    static int g_iTimerIntCnt = 0;
 
-	// 인터럽트 백터 번호 출력
-	vcBuffer[0] = '0' + (iVectorNum / 10);
-	vcBuffer[1] = '0' + (iVectorNum % 10);
-	vcBuffer[2] = '\0';
+    vcBuf[ 5 ] = '0' + iVectorNum / 10;
+    vcBuf[ 6 ] = '0' + iVectorNum % 10;
+    vcBuf[ 8 ] = '0' + g_iTimerIntCnt;
+    g_iTimerIntCnt = ( g_iTimerIntCnt + 1 ) % 10;
+    kPrintStringXY( 70, 0, vcBuf );
 
-	kPrintStringXY(0, 0, "===============================================");
-	kPrintStringXY(0, 1, "Exception Occurred! Vector: ");
-	kPrintStringXY(27, 1, vcBuffer);
+	kSendEOIToPIC(iVectorNum - PIC_IRQ_START_VECTOR);
 
-	while(1);
+	++g_qwTickCount;
+
+	kDecreaseProcessorTime();
+	if(TRUE == kIsProcessorTimeExpired()) {
+		kScheduleInInterrunt();
+	}
+}
+
+
+// isr.asm이 넘기는 인자: RDI=벡터, RSI=에러코드(없으면 0), RDX=레지스터 프레임
+void kCommonExceptionHandler(int iVectorNum, QWORD qwErrCode, QWORD* pqwFrame)
+{
+	BOOL bHasErrCode;
+
+	kDisableInterrupt();
+
+	if(14 == iVectorNum) {
+		if(TRUE == kDoPageFault(qwErrCode, kReadCR2(), pqwFrame)) {
+			return;
+		}
+	}
+
+	bHasErrCode = kIsExceptionHasErrCode(iVectorNum);
+	if(FALSE == bHasErrCode) {
+		qwErrCode = 0;
+	}
+
+	kDumpRegisters(pqwFrame, iVectorNum, qwErrCode, bHasErrCode);
+
+	// #PF가 vmalloc guard page를 짚었다면 십중팔구 커널 스택 오버플로다
+	if((14 == iVectorNum) && (TRUE == kIsVmallocGuardPage(kReadCR2()))) {
+		kPanic("KERNEL STACK OVERFLOW - CR2 is in a vmalloc guard page");
+	}
+	kPanic("Unhandled exception %d (%s)", iVectorNum, kGetExceptionName(iVectorNum));
 }
 
 

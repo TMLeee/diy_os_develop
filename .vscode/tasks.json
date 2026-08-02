@@ -34,8 +34,28 @@
             "problemMatcher": []
         },
         {
-            // QEMU 실행 (빌드 후 Disk.img 부팅)
+            // QEMU 11 실행. -serial stdio로 COM1 로그 확인, -no-reboot로 트리플폴트 추적
+            // (-no-shutdown은 금지: shutdown 명령의 8042 리셋에서 QEMU가 얼어붙는다)
             "label": "run (QEMU)",
+            "type": "shell",
+            "command": "& 'C:/Program Files/qemu/qemu-system-x86_64.exe' -m 64 -fda '${workspaceFolder}/Disk.img' -boot a -M pc -rtc base=localtime -serial stdio -no-reboot",
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "dependsOn": "build",
+            "group": {
+                "kind": "test",
+                "isDefault": true
+            },
+            "problemMatcher": [],
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated"
+            }
+        },
+        {
+            // 폴백: 번들된 구버전 QEMU 0.10.4 (시리얼 없음)
+            "label": "run (QEMU 0.10.4 legacy)",
             "type": "shell",
             "command": "./qemu-system-x86_64.exe -L . -m 64 -fda \"${workspaceFolder}/Disk.img\" -localtime -M pc",
             "options": {
@@ -43,10 +63,7 @@
                 "cwd": "${workspaceFolder}/qemu-0.10.4"
             },
             "dependsOn": "build",
-            "group": {
-                "kind": "test",
-                "isDefault": true
-            },
+            "group": "test",
             "problemMatcher": [],
             "presentation": {
                 "reveal": "always",

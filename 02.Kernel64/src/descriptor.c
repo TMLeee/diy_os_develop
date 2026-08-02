@@ -8,7 +8,20 @@
 
 #include "descriptor.h"
 #include "utility.h"
+#include "paging.h"
 #include "isr.h"
+
+
+// ring3 -> ring0 전이 때 CPU가 여기서 RSP를 가져온다
+static TSSSegment_t* g_poTSS = NULL;
+
+
+void kSetTSSRsp0(QWORD qwRsp0)
+{
+	if(NULL != g_poTSS) {
+		g_poTSS->qwRsp[0] = qwRsp0;
+	}
+}
 
 
 void kInitGDTTableAndTSS(void)
@@ -16,25 +29,28 @@ void kInitGDTTableAndTSS(void)
 	GDTR* poGDTR;
 	GDTEntry8_t* poEntry;
 	TSSSegment_t* poTSS;
-	int i;
 
 	// GDTR 설정
-	poGDTR = (GDTR*) GDTR_START_ADDR;
-	poEntry = (GDTEntry8_t*) (GDTR_START_ADDR + sizeof(GDTR));
+	poGDTR = (GDTR*) __va(GDTR_START_ADDR);
+	poEntry = (GDTEntry8_t*) __va(GDTR_START_ADDR + sizeof(GDTR));
 	poGDTR->wLimit = GDT_TBL_SIZE - 1;
 	poGDTR->qwBaseAddr = (QWORD)poEntry;
 
 	// TSS 영역 설정
 	poTSS = (TSSSegment_t*) ((QWORD)poEntry + GDT_TBL_SIZE);
 
-	// NULL, 64Bit, Code/Data, TSS - 4개의 세그먼트 생성
 	kSetGDTEntry8(&(poEntry[0]), 0, 0, 0, 0, 0);
 	kSetGDTEntry8(&(poEntry[1]), 0, 0xFFFFF, GDT_FLAG_UPPER_CODE, GDT_FLAG_LOWER_KERNELCODE, GDT_TYPE_CODE);
 	kSetGDTEntry8(&(poEntry[2]), 0, 0xFFFFF, GDT_FLAG_UPPER_DATA, GDT_FLAG_LOWER_KERNELDATA, GDT_TYPE_DATA);
-	kSetGDTEntry16((GDTEntry16_t*) &(poEntry)[3], (QWORD)poTSS, sizeof(TSSSegment_t) - 1, GDT_FLAG_UPPER_TSS,
+	kSetGDTEntry8(&(poEntry[3]), 0, 0xFFFFF, GDT_FLAG_UPPER_DATA, GDT_FLAG_LOWER_USERDATA, GDT_TYPE_DATA);
+	kSetGDTEntry8(&(poEntry[4]), 0, 0xFFFFF, GDT_FLAG_UPPER_CODE, GDT_FLAG_LOWER_USERCODE, GDT_TYPE_CODE);
+
+	kSetGDTEntry16((GDTEntry16_t*) &(poEntry[GDTR_8BYTE_ENT_SIZE]),
+					(QWORD)poTSS, sizeof(TSSSegment_t) - 1, GDT_FLAG_UPPER_TSS,
 					GDT_FLAG_LOWER_TSS, GDT_TYPE_TSS);
 
 	// TSS 초기화
+	g_poTSS = poTSS;
 	kInitTSSSegment(poTSS);
 }
 
@@ -68,7 +84,7 @@ void kSetGDTEntry16(GDTEntry16_t *poEntry, QWORD qwBaseAddr, DWORD dwLimit,
 void kInitTSSSegment(TSSSegment_t *poTSS)
 {
 	kMemSet(poTSS, 0, sizeof(TSSSegment_t));
-	poTSS->qwIST[0] = IST_START_ADDR + IST_SIZE;
+	poTSS->qwIST[0] = (QWORD)__va(IST_START_ADDR + IST_SIZE);
 
 	// IO 영역 침범 방지 - TSS의 리밋보다 크게
 	poTSS->wIOMapBaseAddr = 0xFFFF;
@@ -82,10 +98,10 @@ void kInitTDTTable(void)
 	int i;
 
 	// IDTR 시작 주소
-	poIDTR = (IDTR*) IDTR_START_ADDR;
+	poIDTR = (IDTR*) __va(IDTR_START_ADDR);
 
 	// IDTR 테이블 정보 설정
-	poEntry = (IDTEntry_t*)(IDTR_START_ADDR + sizeof(IDTR));
+	poEntry = (IDTEntry_t*)__va(IDTR_START_ADDR + sizeof(IDTR));
 	poIDTR->qwBaseAddr = (QWORD)poEntry;
 	poIDTR->wLimit = IDT_TBL_SIZE - 1;
 
@@ -132,10 +148,12 @@ void kInitTDTTable(void)
 	kSetIDTEntry(&(poEntry[45]), kISRCoprocessor, 0x08, IDT_FLAG_IST1, IDT_FLAG_KENREL, IDT_TYPE_INTERRUPT);
 	kSetIDTEntry(&(poEntry[46]), kISRHDD1, 0x08, IDT_FLAG_IST1, IDT_FLAG_KENREL, IDT_TYPE_INTERRUPT);
 	kSetIDTEntry(&(poEntry[47]), kISRHDD2, 0x08, IDT_FLAG_IST1, IDT_FLAG_KENREL, IDT_TYPE_INTERRUPT);
-	for(i=48; i<IDT_TBL_SIZE; ++i) {
+	for(i=48; i<IDT_ENTRY_SIZE; ++i) {
 		kSetIDTEntry(&(poEntry[i]), kISRETCInterrupt, 0x08, IDT_FLAG_IST1, IDT_FLAG_KENREL, IDT_TYPE_INTERRUPT);
 	}
 
+	kSetIDTEntry(&(poEntry[SYSCALL_VECTOR]), kISRSyscall, 0x08, IDT_FLAG_IST0,
+				IDT_FLAG_USER, IDT_TYPE_INTERRUPT);
 }
 
 
@@ -145,7 +163,7 @@ void kSetIDTEntry(IDTEntry_t *poEntry, void* pvHandler, WORD wSelector,
 	// IDT Gate Decriptor 설정
 	poEntry->wLowBaseAddr = (QWORD)pvHandler & 0xFFFF;
 	poEntry->wSegSelector = wSelector;
-	poEntry->ucIST = ucIST & 0x03;
+	poEntry->ucIST = ucIST & 0x07;		// IST 필드는 3비트
 	poEntry->ucTypeAndFlag = ucType | ucFlag;
 	poEntry->wMidBaseAddr = (((QWORD)pvHandler) >> 16) & 0xFFFF;
 	poEntry->dwUppBaseAddr = ((QWORD)pvHandler) >> 32;

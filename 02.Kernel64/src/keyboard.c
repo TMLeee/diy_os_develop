@@ -64,7 +64,7 @@ BOOL kWaitForACKAndPutOtherScanCode(void)
 
 BOOL kEnableKeyboard(void)
 {
-	int i, j;
+	int i;
 	BOOL bPreINT;
 	BOOL bResult;
 
@@ -111,10 +111,9 @@ BYTE kGetKeyboardScanCode(void)
 
 BOOL kChangeKeyboardLED(BOOL ucCapsLockOn, BOOL bNumLockOn, BOOL bScrollLockOn)
 {
-	int i, j;
+	int i;
 	BOOL bPreINT;
 	BOOL bResult;
-	BYTE ucData;
 
 	// 인터럽트 상태 저장 및 비활성화
 	bPreINT = kSetInterruptFlag(FALSE);

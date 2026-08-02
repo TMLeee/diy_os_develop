@@ -11,6 +11,7 @@
 #include "keyboard.h"
 #include "assembly_utils.h"
 #include "utility.h"
+#include "serial.h"
 
 // 콘솔 정보를 관리하는 변수
 ConsoleMng_t gtConsoleManager = {0,};
@@ -73,6 +74,18 @@ void kPrintf(const char* format, ...)
 }
 
 
+// 화면 출력을 시리얼로 미러링. 출력 가능한 ASCII와 개행/탭만 통과
+static void kMirrorCharToSerial(char cCh)
+{
+	if(('\n' == cCh) || ('\t' == cCh)) {
+		kSerialPutChar(cCh);
+	}
+	else if((0x20 <= (BYTE)cCh) && ((BYTE)cCh <= 0x7E)) {
+		kSerialPutChar(cCh);
+	}
+}
+
+
 int kConsolePrintString(const char* str)
 {
 	CharStruct* poScreen = (CharStruct*)CONSOLE_VIDEO_MEM_ADDR;
@@ -86,6 +99,9 @@ int kConsolePrintString(const char* str)
 	// 문자열을 화면에 출력
 	iLength = kStrLen(str);
 	for(i=0; i<iLength; ++i) {
+
+		// kPrintStringXY는 제외(타이머 핸들러가 매 틱 호출하므로 로그가 뒤덮인다)
+		kMirrorCharToSerial(str[i]);
 
 		// 줄바꿈
 		if('\n' == str[i]) {

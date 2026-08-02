@@ -10,6 +10,9 @@
 
 
 #include "types.h"
+#include "list.h"
+#include "mm.h"
+#include "mm_struct.h"
 
 
 #define TASK_REGISTER_COUNT		(5 + 19)
@@ -41,6 +44,22 @@
 #define TASK_RSP_OFFSET			22
 #define TASK_SS_OFFSET			23
 
+#define TASK_MAX_CNT			1024
+
+// 스스로 끝낸 태스크는 ready 리스트에 없으므로 표시가 필요하다
+#define TASK_FLAG_DEAD			0x8000000000000000UL
+
+// 리눅스 THREAD_SIZE와 같은 16KB. 스택마다 아래에 매핑하지 않은 페이지를
+// 한 장 둬서 오버플로가 조용한 손상 대신 #PF가 되게 한다
+#define TASK_STACK_SIZE			16384
+#define TASK_STACK_PAGES		(TASK_STACK_SIZE / PAGE_SIZE)
+
+// Invalid task id
+#define TASK_INVALID_ID			0xFFFFFFFFFFFFFFFF
+
+// max processing time(ms)
+#define TASK_PROCESSOR_TIME		5
+
 
 #pragma pack (push, 1)
 
@@ -52,20 +71,72 @@ typedef struct kContextStruct{
 
 // 테스크 상태 관리 자료구조
 typedef struct kTaskControlBlockStruct{
+
+	// Next data position, id
+	ListLink_t stLink;
+
+	// Flag
+	QWORD qwFlag;
+
 	// Context
 	Context_t tContext;
-
-	// ID, Flag
-	QWORD qwID;
-	QWORD qwFlag;
 
 	// Stack Address, Size
 	void* pvStackAddr;
 	QWORD qwStackSize;
+
+	mm_t* poMM;
+	QWORD qwCR3;
 }TCB_t;
+
+
+// TCB 풀 상태 관리 자료구조
+typedef struct kTCBPoolManagerStruct {
+	// Infomation of tack pools
+	TCB_t *poStartAddr;
+	QWORD qwStackPoolAddr;		// 스택 풀 베이스. 예전에는 매크로 상수였다
+	int iMaxCnt;
+	int iUseCnt;
+
+	// Allocated count of TCB
+	int iAllocatedCnt;
+}TcbPoolManager_t;
+
+
+// 스케줄러 상태 관리 자료구조
+typedef struct kSchedulerStruct {
+	TCB_t *poRunningTask;
+
+	int iProcessorTime;
+
+	List_t stReadyList;
+}Scheduler_t;
 
 #pragma pack (pop)
 
-void kSetupTask(TCB_t* poTCB, QWORD qwID, QWORD qwFlag, QWORD qwEntryPointAddr, void* poStackAddr, QWORD qwStackSize);
+// Task pool functions
+BOOL kInitializeTCBPool(void);
+TCB_t *kAllocateTCB(void);
+void kFreeTCB(QWORD qwID);
+TCB_t* kCreateTask(QWORD qwFlag, QWORD qwEntryPointAddr);
+void kSetTaskMm(TCB_t* poTask, mm_t* poMm);
+TCB_t* kCreateUserTask(mm_t* poMm, QWORD qwEntryAddr, QWORD qwUserStackTop);
+BOOL kEndTask(QWORD qwTaskID);
+void kExitTask(void);
+TCB_t* kForkTask(mm_t* poMm, QWORD* pqwFrame);
+int kEndAllUserTasks(void);
+void kSetupTask(TCB_t* poTCB, QWORD qwFlag, QWORD qwEntryPointAddr,
+	void *poStackAddr, QWORD qwStackSize);
+
+// Scheduler functions
+BOOL kInitializeScheduler(void);
+void kSetRunningTask(TCB_t *poTask);
+TCB_t* kGetRunningTask(void);
+TCB_t* kGetNextTaskToRun(void);
+void kAddTaskToReadyList(TCB_t* poTask);
+void kSchedule(void);
+BOOL kScheduleInInterrunt(void);
+void kDecreaseProcessorTime(void);
+BOOL kIsProcessorTimeExpired(void);
 
 #endif /* 02_KERNEL64_SRC_TASK_H_ */

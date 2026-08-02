@@ -10,6 +10,7 @@
 
 
 #include "types.h"
+#include "paging.h"
 
 // Macro
 // 비디오 메모리 속성 값
@@ -46,7 +47,8 @@
 // 기본 콘솔 크기
 #define CONSOLE_WIDTH			80
 #define CONSOLE_HEIGHT			25
-#define CONSOLE_VIDEO_MEM_ADDR	0xB8000
+#define CONSOLE_VIDEO_PHYS_ADDR	0xB8000
+#define CONSOLE_VIDEO_MEM_ADDR	((QWORD)__va(CONSOLE_VIDEO_PHYS_ADDR))
 
 // 비디오 컨트롤러 IO 레지스터 주소
 #define VGA_PORT_INDEX			0x3D4

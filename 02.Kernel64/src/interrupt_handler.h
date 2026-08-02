@@ -10,7 +10,8 @@
 
 #include "types.h"
 
-void kCommonExceptionHandler(int iVectorNum, QWORD qwErrCode);
+void kTimerHandler(int iVectorNum);
+void kCommonExceptionHandler(int iVectorNum, QWORD qwErrCode, QWORD* pqwFrame);
 void kCommonInterruptHandler(int iVectorNum);
 void kKeyboardHandler(int iVectorNum);
 

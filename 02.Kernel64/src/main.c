@@ -11,6 +11,16 @@
 #include "pic.h"
 #include "console.h"
 #include "console_shell.h"
+#include "task.h"
+#include "pic.h"
+#include "serial.h"
+#include "utility.h"
+#include "memmap.h"
+#include "pmm.h"
+#include "paging.h"
+#include "slab.h"
+#include "vmalloc.h"
+#include "pit.h"
 
 
 void kPrintString(int x, int y, const char* str)
@@ -27,12 +37,11 @@ void kPrintString(int x, int y, const char* str)
 
 void main(void)
 {
-	char vcTmp[2] = {0,};
-	BYTE ucFlag;
-	BYTE ucTmp;
-	int i=0;
-	KeyData_t tKeyData;
 	int iCursorX, iCursorY;
+
+	// 이후 초기화 중에 죽어도 로그가 남도록 가장 먼저 실행
+	kInitializeSerial();
+	kSerialPutString("\n[SERIAL] COM1 115200 8N1 Ready - Kernel64 Boot\n");
 
 	kInitializeConsole(0, 10);
 	kPrintf("IA-32e Mode Kernel Start ...........[ OK ]\n");
@@ -41,7 +50,7 @@ void main(void)
 	kGetCursor(&iCursorX, &iCursorY);
 	kPrintf("Initializing GDT....................[    ]\n");
 	kInitGDTTableAndTSS();
-	kLoadGDTR(GDTR_START_ADDR);
+	kLoadGDTR((QWORD)__va(GDTR_START_ADDR));
 	kSetCursor(37, iCursorY++);
 	kPrintf(" OK \n");
 
@@ -53,24 +62,94 @@ void main(void)
 
 	kPrintf("Initializing IDT ...................[    ]\n");
 	kInitTDTTable();
-	kLoadIDTR(IDTR_START_ADDR);
+	kLoadIDTR((QWORD)__va(IDTR_START_ADDR));
 	kSetCursor(37, iCursorY++);
 	kPrintf(" OK \n");
+
+	kPrintf("Reading E820 Memory Map.............[    ]\n");
+	if(TRUE == kInitializeMemoryMap()) {
+		kSetCursor(37, iCursorY++);
+		kPrintf(" OK \n");
+	}
+	else {
+		kSetCursor(37, iCursorY++);
+		kPrintf("Fail\n");
+	}
 
 	kPrintf("Check System RAM Size...............[    ]\n");
 	kCheckTotalRAMSize();
 	kSetCursor(37, iCursorY++);
 	kPrintf(" OK \n");
 
+	kPrintf("Physical Frame Allocator............[    ]\n");
+	if(TRUE == kInitializePhysicalMemory()) {
+		kSetCursor(37, iCursorY++);
+		kPrintf(" OK \n");
+	}
+	else {
+		kSetCursor(37, iCursorY++);
+		kPrintf("Fail\n");
+		kPrintf("Fail to initialize physical memory.");
+		while(1);
+	}
+
+	kPrintf("Kernel Page Tables + Direct Map.....[    ]\n");
+	if(TRUE == kInitializePaging()) {
+		kSetCursor(37, iCursorY++);
+		kPrintf(" OK \n");
+	}
+	else {
+		kSetCursor(37, iCursorY++);
+		kPrintf("Fail\n");
+		kPrintf("Fail to initialize paging.");
+		while(1);
+	}
+
+	kPrintf("Slab Allocator + kmalloc............[    ]\n");
+	if(TRUE == kInitializeSlab()) {
+		kSetCursor(37, iCursorY++);
+		kPrintf(" OK \n");
+	}
+	else {
+		kSetCursor(37, iCursorY++);
+		kPrintf("Fail\n");
+		kPrintf("Fail to initialize slab.");
+		while(1);
+	}
+
+	kPrintf("Vmalloc Area........................[    ]\n");
+	if(TRUE == kInitializeVmalloc()) {
+		kSetCursor(37, iCursorY++);
+		kPrintf(" OK \n");
+	}
+	else {
+		kSetCursor(37, iCursorY++);
+		kPrintf("Fail\n");
+		kPrintf("Fail to initialize vmalloc.");
+		while(1);
+	}
+
+	kPrintf("CTCB Pool And Scheduler Initialize..[    ]\n");
+	if(TRUE == kInitializeScheduler()) {
+		kSetCursor(38, iCursorY++);
+		kPrintf(" OK \n");
+	}
+	else {
+		kSetCursor(38, iCursorY++);
+		kPrintf("Fail\n");
+		kPrintf("Fail to initialize scheduler.");
+		while(1);
+	}
+
 	// 키보드 활성화
 	kPrintf("Initializing Keyboard Interface ....[    ]\n");
 	if(TRUE == kInitializeKeyboard()) {
-		kSetCursor(37, iCursorY++);
+		kSetCursor(39, iCursorY++);
 		kPrintf(" OK \n");
 		kChangeKeyboardLED(FALSE, FALSE, FALSE);
 	}
 	else {
-		kSetCursor(37, iCursorY++);
+		kSetCursor(38, iCursorY++);
 		kPrintf("Fail\n");
 		kPrintf("Fail to initializing Keyboard.");
 		while(1);
@@ -80,8 +159,13 @@ void main(void)
 	kPrintf("Initializing PIC Controller ........[    ]\n");
 	kInitializePIC();
 	kMaskPICInterrupt(0);
+
+	// PIT를 한 번도 초기화하지 않아 IRQ0가 BIOS 기본값 18.2Hz로 돌고 있었다.
+	// 1ms 주기로 올리면 TASK_PROCESSOR_TIME(5틱) 퀀텀이 의도한 5ms가 된다
+	kInitializePIT(MS_TO_COUNT(1), TRUE);
+
 	kEnableInterrupt();
-	kSetCursor(37, iCursorY++);
+	kSetCursor(38, iCursorY++);
 	kPrintf(" OK \n");
 
 	kStartConsoleShell();

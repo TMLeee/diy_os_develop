@@ -7,6 +7,12 @@ global kInPortByte, kOutPortByte, kLoadGDTR, kLoadTR, kLoadIDTR
 global kEnableInterrupt, kDisableInterrupt, kReadRFLAGS
 global kReadTSC
 global kSwitchContext
+global kReadCR0, kReadCR2, kReadCR3, kReadCR4
+global kWriteCR0, kWriteCR3, kWriteCR4
+global kInvlpg, kFlushTLB
+global kReadCPUID
+global kHlt
+global kReadMSR, kWriteMSR
 
 ; 포트로부터 1바이트를 읽어옴
 ; BYTE kInPortByte(WORD wPort)
@@ -92,6 +98,112 @@ kReadTSC:
 	or rax, rdx
 
 	pop rdx
+	ret
+
+; QWORD kReadCR0/2/3/4(void)
+kReadCR0:
+	mov rax, cr0
+	ret
+
+kReadCR2:
+	mov rax, cr2
+	ret
+
+kReadCR3:
+	mov rax, cr3
+	ret
+
+kReadCR4:
+	mov rax, cr4
+	ret
+
+; void kWriteCR0/3/4(QWORD qwValue)
+kWriteCR0:
+	mov cr0, rdi
+	ret
+
+kWriteCR3:
+	mov cr3, rdi
+	ret
+
+kWriteCR4:
+	mov cr4, rdi
+	ret
+
+; void kReadCPUID(DWORD dwEAX, DWORD* pdwEAX, DWORD* pdwEBX,
+;                 DWORD* pdwECX, DWORD* pdwEDX)
+kReadCPUID:
+	push rbx
+	push r10
+	push r11
+
+	; cpuid는 rbx/rcx/rdx를 덮으므로 출력 포인터를 먼저 옮겨 둔다
+	mov r10, rdx			; pdwEBX
+	mov r11, rcx			; pdwECX
+	mov r9, r8				; pdwEDX (r8은 cpuid가 건드리지 않지만 통일)
+	mov rax, rdi			; 요청 leaf
+	mov rdi, rsi			; pdwEAX
+
+	cpuid
+
+	mov dword [ rdi ], eax
+	mov dword [ r10 ], ebx
+	mov dword [ r11 ], ecx
+	mov dword [ r9 ], edx
+
+	pop r11
+	pop r10
+	pop rbx
+	ret
+
+; void kInvlpg(QWORD qwVirtAddr)
+kInvlpg:
+	invlpg [rdi]
+	ret
+
+; void kFlushTLB(void) - CR3 재적재로 global이 아닌 모든 엔트리를 비운다
+kFlushTLB:
+	mov rax, cr3
+	mov cr3, rax
+	ret
+
+; void kHlt(void)
+kHlt:
+	hlt
+	ret
+
+; void kReadMSR(DWORD dwMSR, QWORD* pqwValue)
+kReadMSR:
+	push rax
+	push rcx
+	push rdx
+
+	mov rcx, rdi
+	rdmsr					; ECX의 MSR 번호를 읽어 EDX:EAX로 반환
+	shl rdx, 32
+	or rax, rdx
+	mov qword [ rsi ], rax
+
+	pop rdx
+	pop rcx
+	pop rax
+	ret
+
+; void kWriteMSR(DWORD dwMSR, QWORD qwValue)
+kWriteMSR:
+	push rax
+	push rcx
+	push rdx
+
+	mov rcx, rdi
+	mov rax, rsi
+	mov rdx, rsi
+	shr rdx, 32
+	wrmsr					; ECX의 MSR에 EDX:EAX를 씀
+
+	pop rdx
+	pop rcx
+	pop rax
 	ret
 
 ; Context를 저장하고 셀렉터를 교체하는 메크로
@@ -201,3 +313,17 @@ kSwitchContext:
 	; Context 자료구조에서 레지스터 복원
 	KLOADCONTEXT
 	iretq
+
+
+
+global kDoSyscall
+kDoSyscall:
+	mov rax, rdi
+	mov rdi, rsi
+	mov rsi, rdx
+	mov rdx, rcx
+	int 0x80
+	ret
+
+; 링커의 executable-stack 경고 억제
+section .note.GNU-stack noalloc noexec nowrite progbits

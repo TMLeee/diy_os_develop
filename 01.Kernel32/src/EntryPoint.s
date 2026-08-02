@@ -24,7 +24,48 @@ START:
 	and al, 0xFE
 	out 0x92, al
 	
-.SUCC_A20_GATE:	
+.SUCC_A20_GATE:
+	; E820 메모리맵 수집. 실모드에서만 가능하므로 보호모드 진입 전에 해야 한다
+	; 0x7E00=매직('BTIF'), 0x7E04=엔트리수, 0x7E08부터 24바이트 엔트리
+	; DS는 lgdt가 쓰므로 건드리지 않고 ES만 사용한다
+	push es
+	xor ax, ax
+	mov es, ax
+	mov di, 0x7E08
+	xor ebx, ebx
+	xor bp, bp
+
+.E820_LOOP:
+	mov eax, 0x0000E820
+	mov edx, 0x534D4150			; 'SMAP'
+	mov ecx, 24
+	mov dword [ es:di + 20 ], 1	; 20바이트만 반환하는 BIOS를 위한 기본값
+	int 0x15
+	jc .E820_DONE
+	cmp eax, 0x534D4150
+	jne .E820_DONE
+
+	jcxz .E820_NEXT				; 길이 0 엔트리는 버림
+	cmp cl, 20
+	jbe .E820_STORE
+	test byte [ es:di + 20 ], 1	; ACPI 3.0 ignore 비트
+	je .E820_NEXT
+
+.E820_STORE:
+	inc bp
+	add di, 24
+	cmp bp, 128					; 버퍼 상한
+	jae .E820_DONE
+
+.E820_NEXT:
+	test ebx, ebx
+	jne .E820_LOOP
+
+.E820_DONE:
+	mov dword [ es:0x7E00 ], 0x46495442		; 'BTIF'
+	mov word [ es:0x7E04 ], bp
+	pop es
+
 	; 인터럽트가 발생하지 못하도록 함
 	cli
 	

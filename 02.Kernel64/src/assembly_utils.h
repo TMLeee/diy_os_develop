@@ -21,6 +21,22 @@ void kDisableInterrupt(void);
 QWORD kReadRFLAGS(void);
 QWORD kReadTSC(void);
 void kSwitchContext(Context_t* poCurrContext, Context_t* poNextContext);
+QWORD kReadCR0(void);
+QWORD kReadCR2(void);
+QWORD kReadCR3(void);
+QWORD kReadCR4(void);
+void kWriteCR0(QWORD qwValue);
+void kWriteCR3(QWORD qwValue);
+void kWriteCR4(QWORD qwValue);
+void kInvlpg(QWORD qwVirtAddr);
+void kReadCPUID(DWORD dwEAX, DWORD* pdwEAX, DWORD* pdwEBX,
+		DWORD* pdwECX, DWORD* pdwEDX);
+void kFlushTLB(void);
+void kHlt(void);
+void kReadMSR(DWORD dwMSR, QWORD* pqwValue);
+void kWriteMSR(DWORD dwMSR, QWORD qwValue);
 
+
+QWORD kDoSyscall(QWORD qwNum, QWORD qwA1, QWORD qwA2, QWORD qwA3);
 
 #endif /* 02_KERNEL64_SRC_ASSEMBLY_UTILS_H_ */

@@ -74,3 +74,6 @@ kJump64BitKernel:
 	jmp 0x08:0x200000
 
 	jmp $
+
+; 링커의 executable-stack 경고 억제
+section .note.GNU-stack noalloc noexec nowrite progbits

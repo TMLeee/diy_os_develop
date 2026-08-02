@@ -6,9 +6,11 @@
  */
 
 #include "utility.h"
+#include "memmap.h"
 #include "assembly_utils.h"
 
 static QWORD g_qwTotalRAMSize = 0;
+volatile QWORD g_qwTickCount = 0;
 
 void kMemSet(void* poDes, BYTE ucData, int iSize)
 {
@@ -73,27 +75,11 @@ int kStrLen(const char* str)
 }
 
 
+// E820에서 얻은 사용 가능 용량을 MB로 환산. 예전에는 4MB 간격으로 값을 써 보고
+// 읽히는지 확인하는 파괴적 프로빙을 했는데, MMIO/ACPI 구멍을 구분할 수 없었다
 void kCheckTotalRAMSize(void)
 {
-	DWORD* poCurAddr;
-	DWORD* dwPreValue;
-
-	// 64MB 부터 4MB 단위로 검사 시작
-	poCurAddr = (DWORD*)0x4000000;
-	while(1) {
-		// 값을 쓰고 읽어서 해당 주소가 유효한지 확인
-		dwPreValue = *poCurAddr;
-		*poCurAddr = 0x12345678;
-		if(0x12345678 != *poCurAddr) {
-			break;
-		}
-
-		*poCurAddr = dwPreValue;
-		poCurAddr += (0x400000 / 4);
-	}
-
-	// 계산한 용량 저장
-	g_qwTotalRAMSize = (QWORD)(poCurAddr) / 0x100000;
+	g_qwTotalRAMSize = kGetUsableMemorySize() / 0x100000;
 }
 
 
@@ -290,9 +276,49 @@ int kSPrintf(char* str, const char* format, ...)
 }
 
 
+// 0으로 채운 고정폭 16진 문자열. kVSPrintf에 폭 지정이 없어서 필요하다
+void kToHexString(QWORD qwValue, char* pcBuff, int iDigits)
+{
+	int i;
+	BYTE ucNibble;
+
+	for(i=0; i<iDigits; ++i) {
+		ucNibble = (BYTE)((qwValue >> ((iDigits - 1 - i) * 4)) & 0x0F);
+		pcBuff[i] = (9 < ucNibble) ? ('A' + ucNibble - 10) : ('0' + ucNibble);
+	}
+	pcBuff[iDigits] = '\0';
+}
+
+
+// 부호 없는 64비트 10진 변환. kVSPrintf의 %d는 int로 잘리므로 필요하다
+int kUIToDecString(QWORD qwValue, char* pcBuff)
+{
+	char vcTmp[24];
+	int iLen = 0;
+	int i;
+
+	if(0 == qwValue) {
+		pcBuff[0] = '0';
+		pcBuff[1] = '\0';
+		return 1;
+	}
+
+	while(0 < qwValue) {
+		vcTmp[iLen] = '0' + (char)(qwValue % 10);
+		qwValue /= 10;
+		++iLen;
+	}
+	for(i=0; i<iLen; ++i) {
+		pcBuff[i] = vcTmp[iLen - 1 - i];
+	}
+	pcBuff[iLen] = '\0';
+	return iLen;
+}
+
+
 int kVSPrintf(char* str, const char* format, va_list ap)
 {
-	QWORD i, j;
+	QWORD i;
 	int iBuffIdx = 0;
 	int iFormatLength, iCpyLength;
 	char* poCpyStr;
@@ -351,4 +377,10 @@ int kVSPrintf(char* str, const char* format, va_list ap)
 
 	str[iBuffIdx] = '\0';
 	return iBuffIdx;
+}
+
+
+QWORD kGetTickCnt(void)
+{
+	return g_qwTickCount;
 }

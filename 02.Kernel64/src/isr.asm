@@ -4,6 +4,7 @@ SECTION .text
 
 ; Import
 extern kCommonExceptionHandler, kCommonInterruptHandler, kKeyboardHandler
+extern kTimerHandler, kSyscallHandler
 
 ; Export
 ; 예외 처리를 위한 ISR
@@ -49,6 +50,9 @@ global kISRHDD1
 global kISRHDD2
 global kISRETCInterrupt
 
+; 시스템 콜
+global kISRSyscall
+
 ; 콘텍스트 저장 메크로
 %macro KSAVECONTEXT 0
 	; RBP 부터 GS까지 스택에 삽입
@@ -83,6 +87,10 @@ global kISRETCInterrupt
 	mov es, ax
 	mov gs, ax
 	mov fs, ax
+
+	; 핸들러 공통 인자
+	mov rdx, rsp
+	xor rsi, rsi
 %endmacro
 
 ; 콘텍스트 복원 메크로
@@ -200,7 +208,9 @@ kISRDoubleFault:
 
 	mov rdi, 8
 	mov rsi, qword [rbp+8]
+	sub rsp, 8					; 에러코드 벡터는 프레임이 8만큼 밀려 RSP가 16정렬이 아니다
 	call kCommonExceptionHandler
+	add rsp, 8
 
 	KLOADCONTEXT
 	add rsp, 8
@@ -222,7 +232,9 @@ kISRInvalidTSS:
 
 	mov rdi, 10
 	mov rsi, qword [rbp+8]
+	sub rsp, 8					; 에러코드 벡터는 프레임이 8만큼 밀려 RSP가 16정렬이 아니다
 	call kCommonExceptionHandler
+	add rsp, 8
 
 	KLOADCONTEXT
 	add rsp, 8
@@ -234,7 +246,9 @@ kISRSegmentNotPresent:
 
 	mov rdi, 11
 	mov rsi, qword [rbp+8]
+	sub rsp, 8					; 에러코드 벡터는 프레임이 8만큼 밀려 RSP가 16정렬이 아니다
 	call kCommonExceptionHandler
+	add rsp, 8
 
 	KLOADCONTEXT
 	add rsp, 8
@@ -246,7 +260,9 @@ kISRStackSegmentFault:
 
 	mov rdi, 12
 	mov rsi, qword [rbp+8]
+	sub rsp, 8					; 에러코드 벡터는 프레임이 8만큼 밀려 RSP가 16정렬이 아니다
 	call kCommonExceptionHandler
+	add rsp, 8
 
 	KLOADCONTEXT
 	add rsp, 8
@@ -258,7 +274,9 @@ kISRGeneralProtection:
 
 	mov rdi, 13
 	mov rsi, qword [rbp+8]
+	sub rsp, 8					; 에러코드 벡터는 프레임이 8만큼 밀려 RSP가 16정렬이 아니다
 	call kCommonExceptionHandler
+	add rsp, 8
 
 	KLOADCONTEXT
 	add rsp, 8
@@ -270,7 +288,9 @@ kISRPageFault:
 
 	mov rdi, 14
 	mov rsi, qword [rbp+8]
+	sub rsp, 8					; 에러코드 벡터는 프레임이 8만큼 밀려 RSP가 16정렬이 아니다
 	call kCommonExceptionHandler
+	add rsp, 8
 
 	KLOADCONTEXT
 	add rsp, 8
@@ -302,7 +322,9 @@ kISRAlignmentCheck:
 
 	mov rdi, 17
 	mov rsi, qword [rbp+8]
+	sub rsp, 8					; 에러코드 벡터는 프레임이 8만큼 밀려 RSP가 16정렬이 아니다
 	call kCommonExceptionHandler
+	add rsp, 8
 
 	KLOADCONTEXT
 	add rsp, 8
@@ -346,7 +368,7 @@ kISRTimer:
 	KSAVECONTEXT
 
 	mov rdi, 32
-	call kCommonInterruptHandler
+	call kTimerHandler
 
 	KLOADCONTEXT
 	iretq
@@ -368,7 +390,7 @@ kISRSlavePIC:
 	mov rdi, 34
 	call kCommonInterruptHandler
 
-	KSAVECONTEXT
+	KLOADCONTEXT
 	iretq
 
 ; Serial Port 2 ISR
@@ -378,7 +400,7 @@ kISRSerial2:
 	mov rdi, 35
 	call kCommonInterruptHandler
 
-	KSAVECONTEXT
+	KLOADCONTEXT
 	iretq
 
 ; Serial Port 1 ISR
@@ -388,7 +410,7 @@ kISRSerial1:
 	mov rdi, 36
 	call kCommonInterruptHandler
 
-	KSAVECONTEXT
+	KLOADCONTEXT
 	iretq
 
 ;; Parallel Port 2 ISR
@@ -398,7 +420,7 @@ kISRParallel2:
 	mov rdi, 37
 	call kCommonInterruptHandler
 
-	KSAVECONTEXT
+	KLOADCONTEXT
 	iretq
 
 ; Floppy Disk ISR
@@ -408,7 +430,7 @@ kISRFloppy:
 	mov rdi, 38
 	call kCommonInterruptHandler
 
-	KSAVECONTEXT
+	KLOADCONTEXT
 	iretq
 
 ; Parallel Port 1 ISR
@@ -418,7 +440,7 @@ kISRParallel1:
 	mov rdi, 39
 	call kCommonInterruptHandler
 
-	KSAVECONTEXT
+	KLOADCONTEXT
 	iretq
 
 ; RTC ISR
@@ -428,7 +450,7 @@ kISRRTC:
 	mov rdi, 40
 	call kCommonInterruptHandler
 
-	KSAVECONTEXT
+	KLOADCONTEXT
 	iretq
 
 ; Reserved ISR
@@ -438,7 +460,7 @@ kISRReserved:
 	mov rdi, 41
 	call kCommonInterruptHandler
 
-	KSAVECONTEXT
+	KLOADCONTEXT
 	iretq
 
 ; Not Used 1
@@ -448,7 +470,7 @@ kISRNotUsed1:
 	mov rdi, 42
 	call kCommonInterruptHandler
 
-	KSAVECONTEXT
+	KLOADCONTEXT
 	iretq
 
 ; Not Used 2
@@ -458,7 +480,7 @@ kISRNotUsed2:
 	mov rdi, 43
 	call kCommonInterruptHandler
 
-	KSAVECONTEXT
+	KLOADCONTEXT
 	iretq
 
 ; Mouse ISR
@@ -468,7 +490,7 @@ kISRMouse:
 	mov rdi, 44
 	call kCommonInterruptHandler
 
-	KSAVECONTEXT
+	KLOADCONTEXT
 	iretq
 
 ; Coprocessor ISR
@@ -478,7 +500,7 @@ kISRCoprocessor:
 	mov rdi, 45
 	call kCommonInterruptHandler
 
-	KSAVECONTEXT
+	KLOADCONTEXT
 	iretq
 
 ; Hard Disk 1 ISR
@@ -488,7 +510,7 @@ kISRHDD1:
 	mov rdi, 46
 	call kCommonInterruptHandler
 
-	KSAVECONTEXT
+	KLOADCONTEXT
 	iretq
 
 ; Hard Disk 2 ISR
@@ -498,7 +520,7 @@ kISRHDD2:
 	mov rdi, 47
 	call kCommonInterruptHandler
 
-	KSAVECONTEXT
+	KLOADCONTEXT
 	iretq
 
 ; ETC ISR
@@ -508,5 +530,22 @@ kISRETCInterrupt:
 	mov rdi, 48
 	call kCommonInterruptHandler
 
-	KSAVECONTEXT
+	KLOADCONTEXT
 	iretq
+
+
+
+
+;--------------------------------------------------------------------------------
+kISRSyscall:
+	KSAVECONTEXT
+
+	mov rdi, rdx
+	call kSyscallHandler
+
+	KLOADCONTEXT
+	iretq
+
+
+; 링커의 executable-stack 경고 억제
+section .note.GNU-stack noalloc noexec nowrite progbits

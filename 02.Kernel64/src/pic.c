@@ -7,6 +7,7 @@
 
 
 #include "pic.h"
+#include "assembly_utils.h"
 
 
 void kInitializePIC(void)
@@ -32,7 +33,7 @@ void kMaskPICInterrupt(WORD wIrqMask)
 	kOutPortByte(PIC_MASTER_PORT2, (BYTE)wIrqMask);
 
 	// 슬래이브 PIC
-	kOutPortByte(PIC_MASTER_PORT2, (BYTE)(wIrqMask >> 8));
+	kOutPortByte(PIC_SLAVE_PORT2, (BYTE)(wIrqMask >> 8));
 }
 
 
