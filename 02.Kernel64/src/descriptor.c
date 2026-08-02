@@ -12,7 +12,7 @@
 #include "isr.h"
 
 
-// ring3 -> ring0 전이 때 CPU가 여기서 RSP를 가져온다. 태스크 전환마다 갱신해야 한다
+// ring3 -> ring0 전이 때 CPU가 여기서 RSP를 가져온다
 static TSSSegment_t* g_poTSS = NULL;
 
 
@@ -39,17 +39,12 @@ void kInitGDTTableAndTSS(void)
 	// TSS 영역 설정
 	poTSS = (TSSSegment_t*) ((QWORD)poEntry + GDT_TBL_SIZE);
 
-	// NULL, KCode, KData, UData, UCode, TSS
-	// poTSS는 direct map 주소다. TSS 디스크립터의 베이스는 CPU가 쓰는
-	// 가상주소이므로 그게 맞다(물리를 넣으면 안 된다)
 	kSetGDTEntry8(&(poEntry[0]), 0, 0, 0, 0, 0);
 	kSetGDTEntry8(&(poEntry[1]), 0, 0xFFFFF, GDT_FLAG_UPPER_CODE, GDT_FLAG_LOWER_KERNELCODE, GDT_TYPE_CODE);
 	kSetGDTEntry8(&(poEntry[2]), 0, 0xFFFFF, GDT_FLAG_UPPER_DATA, GDT_FLAG_LOWER_KERNELDATA, GDT_TYPE_DATA);
 	kSetGDTEntry8(&(poEntry[3]), 0, 0xFFFFF, GDT_FLAG_UPPER_DATA, GDT_FLAG_LOWER_USERDATA, GDT_TYPE_DATA);
 	kSetGDTEntry8(&(poEntry[4]), 0, 0xFFFFF, GDT_FLAG_UPPER_CODE, GDT_FLAG_LOWER_USERCODE, GDT_TYPE_CODE);
 
-	// 16바이트 TSS 디스크립터는 8바이트 슬롯 두 개를 먹는다.
-	// 인덱스를 상수로 박지 말고 GDTR_8BYTE_ENT_SIZE에서 유도한다
 	kSetGDTEntry16((GDTEntry16_t*) &(poEntry[GDTR_8BYTE_ENT_SIZE]),
 					(QWORD)poTSS, sizeof(TSSSegment_t) - 1, GDT_FLAG_UPPER_TSS,
 					GDT_FLAG_LOWER_TSS, GDT_TYPE_TSS);
@@ -89,7 +84,6 @@ void kSetGDTEntry16(GDTEntry16_t *poEntry, QWORD qwBaseAddr, DWORD dwLimit,
 void kInitTSSSegment(TSSSegment_t *poTSS)
 {
 	kMemSet(poTSS, 0, sizeof(TSSSegment_t));
-	// IST는 CPU가 RSP로 적재하는 값이므로 가상주소여야 한다
 	poTSS->qwIST[0] = (QWORD)__va(IST_START_ADDR + IST_SIZE);
 
 	// IO 영역 침범 방지 - TSS의 리밋보다 크게
@@ -154,13 +148,10 @@ void kInitTDTTable(void)
 	kSetIDTEntry(&(poEntry[45]), kISRCoprocessor, 0x08, IDT_FLAG_IST1, IDT_FLAG_KENREL, IDT_TYPE_INTERRUPT);
 	kSetIDTEntry(&(poEntry[46]), kISRHDD1, 0x08, IDT_FLAG_IST1, IDT_FLAG_KENREL, IDT_TYPE_INTERRUPT);
 	kSetIDTEntry(&(poEntry[47]), kISRHDD2, 0x08, IDT_FLAG_IST1, IDT_FLAG_KENREL, IDT_TYPE_INTERRUPT);
-	// IDT_TBL_SIZE는 바이트 수(1600). 여기는 엔트리 인덱스다
 	for(i=48; i<IDT_ENTRY_SIZE; ++i) {
 		kSetIDTEntry(&(poEntry[i]), kISRETCInterrupt, 0x08, IDT_FLAG_IST1, IDT_FLAG_KENREL, IDT_TYPE_INTERRUPT);
 	}
 
-	// 시스템 콜. DPL3이어야 ring3의 int 0x80이 #GP를 맞지 않는다.
-	// IST0이라 ring3에서 들어오면 TSS.rsp0로, ring0에서면 현재 스택을 그대로 쓴다
 	kSetIDTEntry(&(poEntry[SYSCALL_VECTOR]), kISRSyscall, 0x08, IDT_FLAG_IST0,
 				IDT_FLAG_USER, IDT_TYPE_INTERRUPT);
 }

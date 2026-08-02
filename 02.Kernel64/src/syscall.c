@@ -16,8 +16,7 @@
 static QWORD g_qwSyscallCount = 0;
 
 
-// 유저 버퍼는 아직 검증할 VMA가 없다. 길이만 자르고 커널 스택으로 복사해서
-// 콘솔에 넘긴다. 스텝 25c에서 kCopyFromUser()로 승격시킬 자리다
+// 유저 포인터를 아직 VMA로 검증하지 않는다. kCopyFromUser가 들어갈 자리
 static QWORD kSysWrite(QWORD qwFd, const char* pcBuf, QWORD qwLen)
 {
 	char vcTmp[SYS_WRITE_MAX + 1];
@@ -56,8 +55,7 @@ static QWORD kSysGetPid(void)
 }
 
 
-// 주소공간을 통째로 복사하지 않는다. kMmCopy가 페이지를 공유하며 양쪽 다
-// 읽기 전용으로 내려놓고, 실제 복사는 누가 쓸 때 폴트에서 일어난다
+// 주소공간을 복사하지 않는다. 공유해 두고 쓸 때 폴트에서 복사한다
 static QWORD kSysFork(QWORD* pqwRegs)
 {
 	TCB_t* poParent = kGetRunningTask();
@@ -79,7 +77,6 @@ static QWORD kSysFork(QWORD* pqwRegs)
 		return (QWORD)(-SYS_ENOMEM);
 	}
 
-	// 부모는 자식 ID를, 자식은 0을 받는다
 	return poChild->stLink.qwID;
 }
 
@@ -91,7 +88,6 @@ void kSyscallHandler(QWORD* pqwRegs)
 
 	++g_qwSyscallCount;
 
-	// 인자는 리눅스 x86-64 규약 그대로 RDI, RSI, RDX 순
 	switch(qwNum) {
 		case SYS_WRITE:
 			qwRet = kSysWrite(pqwRegs[TASK_RDI_OFFSET],
@@ -116,7 +112,7 @@ void kSyscallHandler(QWORD* pqwRegs)
 			break;
 	}
 
-	// 반환값은 저장된 RAX 자리에 넣는다. KLOADCONTEXT가 이걸 pop한다
+	// KLOADCONTEXT가 pop할 RAX 자리에 넣는다
 	pqwRegs[TASK_RAX_OFFSET] = qwRet;
 }
 

@@ -19,8 +19,6 @@ static long syscall3(long lNum, long lA1, long lA2, long lA3)
 {
 	long lRet;
 
-	// 리눅스 x86-64 규약 그대로. 인터럽트 게이트라 커널이 모든 레지스터를
-	// 복원해 주지만, 규약을 지키는 쪽이 나중에 syscall 명령으로 바꾸기 쉽다
 	__asm__ __volatile__(
 			"int $0x80"
 			: "=a"(lRet)
@@ -47,7 +45,6 @@ static void kWrite(const char* pcStr)
 }
 
 
-// 값이 커널에서 온 것인지 확인할 수 있게 16진수로 찍는다
 static void kWriteHex(const char* pcLabel, unsigned long qwValue)
 {
 	static const char vcDigit[] = "0123456789ABCDEF";
@@ -67,8 +64,7 @@ static void kWriteHex(const char* pcLabel, unsigned long qwValue)
 }
 
 
-// .data와 .bss가 제대로 적재됐는지 보려면 두 종류 다 있어야 한다.
-// .data는 파일에서 복사돼 와야 하고, .bss는 0으로 채워져야 한다
+// .data는 파일에서 복사돼야 하고 .bss는 0으로 채워져야 한다
 static char gvcGreeting[] = "hello from a real ELF\n";
 static unsigned long gqwZeroed[64];
 
@@ -79,13 +75,11 @@ void _start(void)
 
 	kWrite(gvcGreeting);
 
-	// .bss는 커널이 0으로 준 것이어야 한다. 아니면 앞서 쓰던 쓰레기가 보인다
 	for(i=0; i<64; ++i) {
 		qwSum += gqwZeroed[i];
 	}
 	kWrite((0 == qwSum) ? "bss is zeroed\n" : "BSS NOT ZEROED\n");
 
-	// .bss에 써 보고 되읽는다. 쓰기 가능해야 한다
 	for(i=0; i<64; ++i) {
 		gqwZeroed[i] = i + 1;
 	}
@@ -97,7 +91,6 @@ void _start(void)
 
 	kWriteHex("pid=", (unsigned long)syscall3(SYS_GETPID, 0, 0, 0));
 
-	// 유저에서 끝낼 방법이 아직 없다. 셸이 걷어낸다
 	while(1) {
 	}
 }

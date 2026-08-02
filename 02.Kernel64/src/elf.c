@@ -31,7 +31,6 @@ BOOL kElfIsValid(const BYTE* pbImage, QWORD qwSize)
 		return FALSE;
 	}
 
-	// 프로그램 헤더 테이블이 이미지 안에 있는지
 	if(poEhdr->qwPhoff + ((QWORD)poEhdr->wPhnum * poEhdr->wPhentsize) > qwSize) {
 		return FALSE;
 	}
@@ -56,8 +55,7 @@ static QWORD kElfPhdrToVmFlags(DWORD dwFlags)
 }
 
 
-// 세그먼트 하나를 올린다. 파일에 있는 부분은 지금 복사해야 하므로 프레임을
-// 바로 잡고, filesz를 넘는 .bss 쪽은 건드릴 때 폴트로 채우게 둔다
+// 파일에 있는 부분만 미리 잡는다. filesz를 넘는 .bss는 폴트에 맡긴다
 static BOOL kElfLoadSegment(mm_t* poMm, const BYTE* pbImage,
 							const Elf64Phdr_t* poPhdr)
 {
@@ -72,7 +70,6 @@ static BOOL kElfLoadSegment(mm_t* poMm, const BYTE* pbImage,
 	}
 
 	for(qwVirtAddr = qwStart; qwVirtAddr < qwEnd; qwVirtAddr += PAGE_SIZE) {
-		// 이 페이지가 파일 내용과 겹치지 않으면 순수 .bss다. 지연 할당에 맡긴다
 		if(qwVirtAddr >= qwFileEnd) {
 			continue;
 		}
@@ -82,7 +79,7 @@ static BOOL kElfLoadSegment(mm_t* poMm, const BYTE* pbImage,
 			return FALSE;
 		}
 
-		// 페이지 앞뒤로 파일 밖 영역이 남을 수 있다. 통째로 0으로 깔고 덮는다
+		// 페이지 앞뒤로 파일 밖이 남을 수 있어 0으로 깔고 덮는다
 		kMemSet(__va(qwPhys), 0, PAGE_SIZE);
 
 		qwCopyFrom = (qwVirtAddr > poPhdr->qwVaddr) ? qwVirtAddr : poPhdr->qwVaddr;
@@ -122,8 +119,7 @@ QWORD kElfLoad(mm_t* poMm, const BYTE* pbImage, QWORD qwSize)
 			continue;
 		}
 
-		// 유저 절반 밖으로 나가는 세그먼트는 거절한다. 안 그러면 커널 주소에
-		// 유저 페이지를 올리게 된다
+		// 유저 절반을 벗어나는 세그먼트는 거절한다
 		if((USER_VA_END <= poPhdr->qwVaddr) ||
 		   (USER_VA_END <= (poPhdr->qwVaddr + poPhdr->qwMemsz)) ||
 		   (poPhdr->qwFilesz > poPhdr->qwMemsz) ||

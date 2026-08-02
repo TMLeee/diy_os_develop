@@ -88,8 +88,7 @@ global kISRSyscall
 	mov gs, ax
 	mov fs, ax
 
-	; 핸들러 공통 인자. 삽입하는 QWORD 수는 변하지 않는다
-	; RDX(3번째) = 저장된 레지스터 프레임 주소, RSI(2번째) = 에러코드 기본값 0
+	; 핸들러 공통 인자
 	mov rdx, rsp
 	xor rsi, rsi
 %endmacro
@@ -538,14 +537,9 @@ kISRETCInterrupt:
 
 
 ;--------------------------------------------------------------------------------
-; 시스템 콜 - int 0x80
-; 에러코드가 없으므로 프레임이 정확히 Context_t 레이아웃이다.
-; IST를 쓰지 않는다(IST0) -> ring3에서 들어오면 CPU가 TSS.rsp0로 갈아탄다.
-; 반환값은 핸들러가 저장된 RAX 자리에 써 두고 KLOADCONTEXT가 pop한다
 kISRSyscall:
 	KSAVECONTEXT
 
-	; KSAVECONTEXT가 RDX에 프레임 주소를 넣어 둔다
 	mov rdi, rdx
 	call kSyscallHandler
 

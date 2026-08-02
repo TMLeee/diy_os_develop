@@ -568,7 +568,6 @@ void kPageProtTest(const char* poParamBuff)
 	QWORD qwFrame;
 	volatile QWORD* pqwAlias;
 	volatile QWORD* pqwDirect;
-	// 커널이 쓰지 않는 저주소 한 장. 유저 텍스트가 앉을 자리이기도 하다
 	#define PGTEST_ALIAS_VA	0x400000UL
 	char vcHex[17];
 
@@ -583,7 +582,7 @@ void kPageProtTest(const char* poParamBuff)
 			(TRUE == kIsNXSupported()) ? "supported" : "no");
 
 	// 섹션 경계는 커널이 커지면 움직이므로 주소를 링커 심볼에서 가져온다
-	// 커널이 실제로 실행되는 고주소 별칭을 본다. 보호는 거기에 걸려 있다
+	// 보호는 커널이 실행되는 고주소 별칭에 걸려 있다
 	vqProbe[0] = KERNEL_VMA + KERNEL_PHYS_BASE;
 	vqProbe[1] = (QWORD)__text_end;
 	vqProbe[2] = (QWORD)__rodata_end;
@@ -605,9 +604,7 @@ void kPageProtTest(const char* poParamBuff)
 		return;
 	}
 
-	// identity 별칭은 이제 없다. 대신 저주소에 4KB 별칭을 직접 만들어
-	// direct map과 같은 프레임을 보는지 확인한다. identity를 걷어낸 덕분에
-	// 이 매핑이 가능해졌다는 것까지 한 번에 검사된다
+	// 저주소에 4KB 별칭을 만들어 direct map과 같은 프레임인지 본다
 	pqwDirect = (volatile QWORD*)__va(qwFrame);
 	kToHexString(qwFrame, vcHex, 12);
 	kPrintf("frame %s: ", vcHex);
@@ -622,14 +619,12 @@ void kPageProtTest(const char* poParamBuff)
 	*pqwAlias = 0xFEEDFACECAFEBEEF;
 	kPrintf("%s  ", (0xFEEDFACECAFEBEEF == *pqwDirect) ? "alias->direct OK" : "alias->direct MISMATCH");
 
-	// 반대 방향도 확인
 	*pqwDirect = 0x0123456789ABCDEF;
 	kPrintf("%s\n", (0x0123456789ABCDEF == *pqwAlias) ? "direct->alias OK" : "direct->alias MISMATCH");
 
 	kToHexString((QWORD)pqwDirect, vcHex, 16);
 	kPrintf("direct map VA = %s\n", vcHex);
 
-	// 저주소가 정말 비어 있어야 유저 주소공간이 들어간다
 	kUnmapPage(kReadCR3(), PGTEST_ALIAS_VA);
 	kPrintf("low half %s\n",
 			(0 == kVirtToPhys(kReadCR3(), PGTEST_ALIAS_VA)) ? "clear (no identity map)" : "STILL MAPPED");
@@ -673,7 +668,6 @@ void kAllocTest(const char* poParamBuff)
 			kPrintf("MISALIGNED at %d\n", iGot);
 			break;
 		}
-		// kAllocPages는 물리주소를 준다. 만지려면 direct map을 거쳐야 한다
 		*(volatile QWORD*)__va(vqAddr[iGot]) = 0xA5A5A5A5A5A5A5A5;
 	}
 
@@ -922,8 +916,7 @@ void kMapTest(const char* poParamBuff)
 	}
 	qwVirtAddr = PAGE_ALIGN_DOWN((QWORD)kAToI(vcParam, 16));
 
-	// 두 번째 인자가 있으면 유저 페이지로 매핑한다. x86-64는 네 레벨의 U/S를
-	// AND하므로 중간 레벨까지 US가 서 있어야 ring3에서 닿는다
+	// x86-64는 네 레벨의 U/S를 AND한다. 중간까지 US가 서야 ring3에서 닿는다
 	if(0 != kGetNextParam(&stList, vcParam)) {
 		qwUS = PTE_US;
 	}
@@ -947,7 +940,6 @@ void kMapTest(const char* poParamBuff)
 	kPrintf("VA %s: mapped, readback %s\n", vcHex,
 			(0xC0FFEE0000BEEF == *pqw) ? "OK" : "MISMATCH");
 
-	// 중간 레벨까지 US가 전파됐는지 센다. 리프만 US면 ring3에서 못 닿는다
 	iLevel = kWalkPageTable(kReadCR3(), qwVirtAddr, vqEntry);
 	if(PG_LEVEL_4K == iLevel) {
 		for(i=0; i<4; ++i) {
@@ -962,8 +954,7 @@ void kMapTest(const char* poParamBuff)
 	kFreePage(qwPhys);
 }
 
-// ring0에서 int 0x80을 직접 쳐서 게이트/디스패처/반환값 경로를 확인한다.
-// ring3 진입은 스텝 25d에서 붙는다
+// ring0에서 int 0x80을 직접 쳐 본다
 void kSyscallTest(const char* poParamBuff)
 {
 	const char* pcMsg = "hello from int 0x80\n";
@@ -982,7 +973,6 @@ void kSyscallTest(const char* poParamBuff)
 	qwRet = kDoSyscall(SYS_UPTIME, 0, 0, 0);
 	kPrintf("sys_uptime -> %q ticks\n", qwRet);
 
-	// 없는 번호는 -ENOSYS. 부호 확장이 살아 있는지도 같이 본다
 	qwRet = kDoSyscall(4242, 0, 0, 0);
 	kPrintf("bad call   -> %d (want -38)\n", (int)qwRet);
 
@@ -992,8 +982,7 @@ void kSyscallTest(const char* poParamBuff)
 	kPrintf("dispatched %d syscalls\n", (int)(kGetSyscallCount() - qwBefore));
 }
 
-// 유저 주소공간을 하나 만들어 CR3까지 갈아타 본다. 커널 절반 공유가 깨져 있으면
-// mov cr3 다음 명령어에서 죽으므로, 이 명령이 끝까지 출력되는 것 자체가 증거다
+// 커널 절반 공유가 깨져 있으면 mov cr3 다음 명령에서 죽는다
 void kMmTest(const char* poParamBuff)
 {
 	mm_t* poMm;
@@ -1005,9 +994,7 @@ void kMmTest(const char* poParamBuff)
 	BOOL bPrevFlag;
 	int i, iUserLevels = 0;
 
-	// slab은 객체가 다 빠져도 빈 슬랩을 캐시에 남긴다. 그래서 mm_t와
-	// vm_area_t를 처음 쓰는 순간 페이지가 두 장 늘어나는데, 그건 누수가
-	// 아니다. 캐시를 먼저 덥혀 놓고 측정해야 숫자가 결정적이 된다
+	// slab은 빈 슬랩을 캐시에 남긴다. 먼저 덥혀야 측정이 결정적이 된다
 	poMm = kMmCreate();
 	if(NULL != poMm) {
 		kVmaCreate(poMm, 0x400000, 0x401000, VM_READ);
@@ -1024,7 +1011,6 @@ void kMmTest(const char* poParamBuff)
 	kToHexString(poMm->qwPML4, vcHex, 12);
 	kPrintf("mm created pml4=%s mms=%q\n", vcHex, kGetMmCount());
 
-	// VMA: 정렬 삽입, 조회, 겹침 거절
 	kVmaCreate(poMm, 0x400000, 0x401000, VM_READ | VM_WRITE);
 	kVmaCreate(poMm, 0x600000, 0x602000, VM_READ | VM_EXEC);
 	poVma = kVmaFind(poMm, 0x400500);
@@ -1056,7 +1042,7 @@ void kMmTest(const char* poParamBuff)
 	}
 	kPrintf("US levels %d/4\n", iUserLevels);
 
-	// CR3를 바꾸는 동안 선점되면 다른 태스크가 이 주소공간에서 돈다
+	// 선점되면 다른 태스크가 이 주소공간에서 돈다
 	bPrevFlag = kSetInterruptFlag(FALSE);
 	qwPrevCR3 = kReadCR3();
 	kWriteCR3(poMm->qwPML4);
@@ -1067,7 +1053,6 @@ void kMmTest(const char* poParamBuff)
 	kWriteCR3(qwPrevCR3);
 	kSetInterruptFlag(bPrevFlag);
 
-	// 유저 VA로 쓴 값이 정말 그 프레임에 들어갔는지 direct map으로 확인한다
 	kPrintf("user write via CR3 switch: %s\n",
 			(0x5EE0FF1CE0000001 == *(volatile QWORD*)__va(qwPhys)) ? "OK" : "MISMATCH");
 
@@ -1080,8 +1065,7 @@ void kMmTest(const char* poParamBuff)
 			(qwFreeBefore == qwFreeAfter) ? "OK" : "LEAK");
 }
 
-// cr3test가 띄우는 태스크. 0x400000은 이 태스크의 주소공간에만 매핑돼 있으므로,
-// 컨텍스트 전환이 CR3를 따라오지 않으면 여기서 #PF가 나고 패닉으로 드러난다
+// 0x400000은 이 태스크의 주소공간에만 있다. CR3가 안 따라오면 #PF다
 static volatile QWORD g_qwCR3TestValue = 0;
 static volatile QWORD g_qwCR3TestSeen = 0;
 static volatile int g_iCR3TestDone = 0;
@@ -1126,8 +1110,7 @@ void kCR3Test(const char* poParamBuff)
 	g_qwCR3TestSeen = 0;
 	g_iCR3TestDone = 0;
 
-	// kCreateTask는 곧바로 ready 리스트에 넣는다. 여기서 선점되면 태스크가
-	// 커널 CR3로 돌면서 0x400000을 읽어 죽으므로 바인딩까지 원자적으로 한다
+	// kCreateTask가 곧바로 큐에 넣으므로 바인딩까지 원자적으로 한다
 	bPrevFlag = kSetInterruptFlag(FALSE);
 	poTask = kCreateTask(0, (QWORD)kCR3TestTask);
 	if(NULL != poTask) {
@@ -1160,22 +1143,18 @@ void kCR3Test(const char* poParamBuff)
 				(0xC0DE1234ABCD5678 == g_qwCR3TestValue) ? "OK" : "MISMATCH");
 	}
 
-	// 커널 스레드는 CR3를 빌려 쓰므로 셸이 아직 그 주소공간 위에 있을 수 있다.
-	// kMmDestroy가 그걸 알아채고 커널 CR3로 돌려놓는지 함께 본다
+	// 커널 스레드는 CR3를 빌려 쓰므로 셸이 아직 그 위에 있을 수 있다
 	kPrintf("shell borrowed mm cr3: %s\n",
 			(PTE_ADDR(kReadCR3()) == PTE_ADDR(poMm->qwPML4)) ? "yes (lazy TLB)" : "no");
 
-	// 태스크가 mm을 소유한다. kEndTask -> kFreeTask가 kMmDestroy까지 하므로
-	// 여기서 또 부르면 해제된 mm을 만진다. qwPhys도 그 안에서 반납된다
+	// kEndTask -> kFreeTask가 kMmDestroy까지 한다. 여기서 또 부르면 안 된다
 	kEndTask(poTask->stLink.qwID);
 
 	kPrintf("after destroy cr3 is kernel: %s\n",
 			(PTE_ADDR(kReadCR3()) == PTE_ADDR(kGetKernelCR3())) ? "OK" : "BAD");
 }
 
-// user_stub.asm이 커널 .text 안에 링크돼 있다. 유저 페이지로 복사해서 ring3로
-// 내려보낸다. 스텁이 sys_write로 찍는 줄이 보이면 ring3 -> int 0x80 -> TSS.rsp0
-// -> 디스패처 -> iretq 경로가 전부 살아 있다는 뜻이다
+// user_stub.asm을 유저 페이지로 복사해서 ring3로 내려보낸다
 extern char kUserStubStart[];
 extern char kUserStubEnd[];
 extern char kUserBadStubStart[];
@@ -1204,8 +1183,7 @@ void kUserTest(const char* poParamBuff)
 	BOOL bPrevFlag, bOk = TRUE, bBad = FALSE, bDemand = FALSE, bFork = FALSE;
 	QWORD qwDemandBefore, qwCowBefore, qwCowReuseBefore;
 
-	// bad     - 커널 주소를 건드린다. 그 태스크만 죽어야 한다
-	// demand  - 매핑 없는 VMA를 훑는다. 폴트마다 프레임이 붙어야 한다
+	// bad: 커널 주소를 건드린다  demand: 매핑 없는 VMA를 훑는다
 	kInitializeParam(&stList, poParamBuff);
 	if(0 != kGetNextParam(&stList, vcParam)) {
 		if(0 == kMemCmp(vcParam, "demand", 7)) {
@@ -1240,9 +1218,7 @@ void kUserTest(const char* poParamBuff)
 		return;
 	}
 
-	// 기준선을 잡기 전에 일회성 증가분을 미리 소화한다. 이 커널의 첫
-	// kVmapPages는 vmalloc_area 슬랩 한 장과 vmalloc 영역의 PD/PT를 만드는데,
-	// 그 테이블들은 kVfree 후에도 재사용을 위해 남는다. 누수가 아니다
+	// 첫 kVmapPages가 만드는 슬랩/PD/PT는 반납 후에도 남는다. 누수가 아니다
 	poMm = kMmCreate();
 	if(NULL != poMm) {
 		kVmaCreate(poMm, USER_CODE_VA, USER_CODE_VA + PAGE_SIZE, VM_READ);
@@ -1260,7 +1236,6 @@ void kUserTest(const char* poParamBuff)
 		return;
 	}
 
-	// 코드 페이지: 복사는 direct map으로, 매핑은 US + 실행 가능(NX 없음)
 	qwCodePhys = kAllocPage();
 	if(0 == qwCodePhys) {
 		kPrintf("alloc failed\n");
@@ -1275,12 +1250,10 @@ void kUserTest(const char* poParamBuff)
 		bOk = FALSE;
 	}
 
-	// 유저 스택: 유저 절반 꼭대기에서 아래로
 	qwStackBase = USER_STACK_TOP - ((QWORD)USER_STACK_PAGES * PAGE_SIZE);
 	kVmaCreate(poMm, qwStackBase, USER_STACK_TOP, VM_READ | VM_WRITE | VM_GROWSDOWN);
 
-	// demand 모드에서는 VMA만 만들고 프레임은 붙이지 않는다. 스택도 힙도
-	// 처음 건드릴 때 폴트 핸들러가 채워야 한다
+	// VMA만 만들고 프레임은 안 붙인다. 스택도 힙도 폴트로 채워진다
 	if((TRUE == bDemand) || (TRUE == bFork)) {
 		kVmaCreate(poMm, USER_HEAP_VA,
 				USER_HEAP_VA + ((QWORD)USER_HEAP_PAGES * PAGE_SIZE), VM_READ | VM_WRITE);
@@ -1329,15 +1302,13 @@ void kUserTest(const char* poParamBuff)
 		kPrintf("kCreateUserTask failed\n");
 	}
 	else {
-		// 스텁은 무한루프라 스스로 끝나지 않는다. 잠깐 돌려 보고 걷어낸다
 		qwStartTick = g_qwTickCount;
 		while((g_qwTickCount - qwStartTick) < ((TRUE == bFork) ? 400 : 100)) {
 			kSchedule();
 		}
 
-		// 선점될 때 CPU가 밀어 넣은 CS가 TCB에 저장돼 있다. 0x23이면 그 태스크가
-		// 실제로 ring3에서 돌고 있었다는 증거다 - 출력만으로는 알 수 없다.
-		// bad 스텁은 폴트 핸들러가 복귀 지점을 ring0으로 돌려놓으므로 CS=8이 맞다
+		// 선점 때 CPU가 밀어 넣은 CS. 0x23이면 진짜 ring3였다는 증거다.
+		// bad는 핸들러가 복귀 지점을 ring0으로 돌려놓으므로 CS=8이 맞다
 		if(FALSE == bBad) {
 			kPrintf("saved CS=%q CPL=%d %s\n",
 					poTask->tContext.vqRegister[TASK_CS_OFFSET],
@@ -1347,7 +1318,6 @@ void kUserTest(const char* poParamBuff)
 		}
 
 		if(TRUE == bDemand) {
-			// 힙 16장 + 스택 최소 1장. 미리 매핑한 게 없으니 전부 폴트로 붙은 것이다.
 			// %q는 16진수라 10진수 기대값과 나란히 두면 오해를 부른다
 			kUIToDecString(kGetDemandPageCount() - qwDemandBefore, vcHex);
 			kPrintf("demand-paged %s pages (want >= %d)\n",
@@ -1364,13 +1334,11 @@ void kUserTest(const char* poParamBuff)
 				(0 != (poTask->qwFlag & TASK_FLAG_DEAD)) ? "died (SEGV)" : "still alive",
 				kGetKilledTaskCount());
 
-		// fork가 만든 자식은 셸이 모르는 태스크다. 주소공간을 가진 것을 전부
-		// 걷어낸다. 각 태스크가 자기 mm을 소유하므로 여기서 다 정리된다
+		// fork가 만든 자식은 셸이 모른다. 주소공간을 가진 것을 전부 걷어낸다
 		kPrintf("reaped %d user task(s), shell alive\n", kEndAllUserTasks());
 	}
 
-	// 태스크가 mm을 소유한다. kEndAllUserTasks가 이미 kMmDestroy까지 했으므로
-	// 여기서 또 부르면 이중 해제다. 태스크를 못 만든 경우에만 직접 정리한다
+	// 태스크가 mm을 소유한다. 태스크를 못 만든 경우에만 직접 정리한다
 	if(NULL == poTask) {
 		kMmDestroy(poMm);
 	}
@@ -1379,7 +1347,7 @@ void kUserTest(const char* poParamBuff)
 			(qwFreeBefore == kGetFreePageCount()) ? "OK" : "LEAK");
 }
 
-// Bin2C가 03.Application/00.HelloWorld/hello.elf를 커널 .rodata에 박아 둔다
+// Bin2C가 hello.elf를 커널 .rodata에 박아 둔다
 extern const BYTE g_vHelloApp[];
 extern const QWORD g_qwHelloAppSize;
 
@@ -1399,8 +1367,7 @@ void kExec(const char* poParamBuff)
 	kUIToDecString(g_qwHelloAppSize, vcHex);
 	kPrintf("ELF64 EXEC x86-64, %s bytes\n", vcHex);
 
-	// mmtest와 같은 이유로 일회성 증가분을 먼저 소화한다. vm_area_t 슬랩까지
-	// 덥혀야 한다 - VMA를 처음 만드는 순간 kmalloc-32가 한 장 늘어난다
+	// mmtest와 같은 이유로 슬랩을 먼저 덥힌다
 	poMm = kMmCreate();
 	if(NULL != poMm) {
 		kVmaCreate(poMm, 0x400000, 0x401000, VM_READ);
@@ -1432,7 +1399,6 @@ void kExec(const char* poParamBuff)
 	kToHexString(poMm->qwCodeEnd, vcHex, 8);
 	kPrintf("%s vmas=%d\n", vcHex, poMm->iVmaCount);
 
-	// 스택은 VMA만 잡는다. 첫 push가 폴트로 채운다
 	qwStackBase = USER_STACK_TOP - ((QWORD)USER_STACK_PAGES * PAGE_SIZE);
 	if(NULL == kVmaCreate(poMm, qwStackBase, USER_STACK_TOP,
 						VM_READ | VM_WRITE | VM_GROWSDOWN)) {

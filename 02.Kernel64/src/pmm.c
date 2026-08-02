@@ -315,8 +315,6 @@ QWORD kAllocPages(int iOrder)
 }
 
 
-// COW로 프레임을 공유하기 시작하면 마지막 소유자만 반납해야 한다.
-// kAllocPages가 이미 iRefCount=1로 만들어 주므로 여기서는 증감만 한다
 int kGetPageRefCount(QWORD qwPhysAddr)
 {
 	QWORD qwPfn = PFN_DOWN(qwPhysAddr);
@@ -339,7 +337,6 @@ void kPageGet(QWORD qwPhysAddr)
 }
 
 
-// 참조를 하나 내려놓는다. 0이 되면 그때 진짜로 반납한다
 void kPagePut(QWORD qwPhysAddr)
 {
 	QWORD qwPfn = PFN_DOWN(qwPhysAddr);

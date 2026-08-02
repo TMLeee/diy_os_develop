@@ -47,8 +47,6 @@
 // 기본 콘솔 크기
 #define CONSOLE_WIDTH			80
 #define CONSOLE_HEIGHT			25
-// VGA 텍스트 버퍼. 물리 0xB8000을 direct map으로 본다.
-// identity 맵이 사라져도 유효해야 하므로 정의 지점에서 한 번에 가상화한다
 #define CONSOLE_VIDEO_PHYS_ADDR	0xB8000
 #define CONSOLE_VIDEO_MEM_ADDR	((QWORD)__va(CONSOLE_VIDEO_PHYS_ADDR))
 

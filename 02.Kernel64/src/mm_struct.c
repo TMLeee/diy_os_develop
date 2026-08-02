@@ -19,7 +19,7 @@ static QWORD g_qwMmCount = 0;
 
 QWORD kMmVmToPteFlags(QWORD qwVmFlags)
 {
-	QWORD qwFlags = PTE_US;		// 유저 페이지는 US 없이는 의미가 없다
+	QWORD qwFlags = PTE_US;
 
 	if(0 != (qwVmFlags & VM_WRITE)) {
 		qwFlags |= PTE_RW;
@@ -53,12 +53,8 @@ mm_t* kMmCreate(void)
 	poNew = (pte_t*)__va(qwFrame);
 	kMemSet(poNew, 0, PAGE_SIZE);
 
-	// 커널 절반(PML4[256..511])을 통째로 공유한다. direct map, vmalloc, 커널
-	// 이미지 창이 모든 주소공간에서 같은 자리에 있어야 CR3를 바꾼 직후에도
-	// 커널 코드가 계속 실행되고 스택이 유효하다.
-	// 엔트리는 PDPT를 가리키는 포인터다. 그 아래가 나중에 자라는 건 자동으로
-	// 공유되지만, PML4 엔트리 자체가 나중에 생기면 반영되지 않는다.
-	// kInitializePaging이 커널 절반 엔트리를 미리 다 만들어 두는 이유다
+	// 커널 절반을 공유한다. 안 그러면 mov cr3 다음 명령에서 죽는다.
+	// 엔트리가 나중에 생기면 반영되지 않아 kInitializePaging이 미리 만들어 둔다
 	poKernel = (pte_t*)__va(PTE_ADDR(kGetKernelCR3()));
 	for(i=256; i<512; ++i) {
 		poNew[i] = poKernel[i];
@@ -76,8 +72,7 @@ mm_t* kMmCreate(void)
 }
 
 
-// 유저 절반에 매달린 프레임과 테이블을 전부 반납한다. 커널 절반은 공유물이라
-// 손대면 안 된다 - 그래서 i는 256에서 멈춘다
+// 유저 절반만 반납한다. 커널 절반은 공유물이라 i가 256에서 멈춘다
 static void kFreeUserTables(QWORD qwPML4)
 {
 	pte_t* poPML4 = (pte_t*)__va(PTE_ADDR(qwPML4));
@@ -112,8 +107,7 @@ static void kFreeUserTables(QWORD qwPML4)
 
 				for(l=0; l<512; ++l) {
 					if(0 != (poPT[l] & PTE_P)) {
-						// fork 후에는 다른 주소공간과 프레임을 공유할 수 있다.
-						// 마지막 참조일 때만 실제로 반납된다
+						// fork로 공유 중일 수 있다. 마지막 참조에서만 반납된다
 						kPagePut(PTE_ADDR(poPT[l]));
 					}
 				}
@@ -136,7 +130,7 @@ void kMmDestroy(mm_t* poMm)
 		return;
 	}
 
-	// 돌고 있는 주소공간을 없애면 다음 명령어에서 죽는다
+	// 지금 돌고 있는 주소공간이면 먼저 빠져나온다
 	if(PTE_ADDR(kReadCR3()) == PTE_ADDR(poMm->qwPML4)) {
 		kWriteCR3(kGetKernelCR3());
 	}
@@ -153,8 +147,7 @@ void kMmDestroy(mm_t* poMm)
 }
 
 
-// 시작 주소 오름차순을 유지하며 삽입한다. 겹치면 거절 - 겹친 VMA를 허용하면
-// 폴트 핸들러가 어느 쪽 권한을 써야 할지 알 수 없다
+// 시작 주소 오름차순 삽입. 겹치면 거절 - 폴트 때 어느 권한인지 알 수 없다
 vm_area_t* kVmaCreate(mm_t* poMm, QWORD qwStart, QWORD qwEnd, QWORD qwFlags)
 {
 	vm_area_t *poNew, *poCur, *poPrev;
@@ -208,7 +201,6 @@ vm_area_t* kVmaFind(mm_t* poMm, QWORD qwAddr)
 	}
 
 	for(poVma = poMm->poVmaList; NULL != poVma; poVma = poVma->poNext) {
-		// 정렬돼 있으므로 시작이 넘어가면 더 볼 필요가 없다
 		if(qwAddr < poVma->qwStart) {
 			return NULL;
 		}
@@ -220,9 +212,8 @@ vm_area_t* kVmaFind(mm_t* poMm, QWORD qwAddr)
 }
 
 
-// 유저 절반의 present 4KB 리프를 전부 자식에게도 걸고, 양쪽 다 쓰기 권한을
-// 뺀다. 그러면 어느 쪽이 쓰든 #PF가 나고 그때 복사한다(copy-on-write).
-// VMA에 VM_WRITE가 있는데 PTE에 RW가 없다 = COW 대상, 이라는 규약을 쓴다
+// 리프를 공유하고 양쪽 다 RW를 뺀다.
+// VMA는 VM_WRITE인데 PTE에 RW가 없다 = COW, 라는 규약을 쓴다
 static BOOL kMmCopyPtes(mm_t* poDst, QWORD qwSrcPML4)
 {
 	pte_t* poPML4 = (pte_t*)__va(PTE_ADDR(qwSrcPML4));
@@ -256,7 +247,6 @@ static BOOL kMmCopyPtes(mm_t* poDst, QWORD qwSrcPML4)
 					qwVirtAddr = ((QWORD)i << 39) | ((QWORD)j << 30) |
 								 ((QWORD)k << 21) | ((QWORD)l << 12);
 
-					// US/NX는 유지하고 RW만 뺀다
 					qwFlags = poPT[l] & (PTE_US | PTE_NX);
 
 					if(FALSE == kMapPage(poDst->qwPML4, qwVirtAddr,
@@ -265,8 +255,7 @@ static BOOL kMmCopyPtes(mm_t* poDst, QWORD qwSrcPML4)
 					}
 					kPageGet(PTE_ADDR(poPT[l]));
 
-					// 부모 쪽도 같이 강등해야 한다. 한쪽만 하면 부모가 자식
-					// 몰래 공유 프레임을 고칠 수 있다
+					// 부모도 같이 강등한다. 안 하면 부모가 자식 메모리를 고친다
 					poPT[l] &= ~PTE_RW;
 				}
 			}
@@ -306,7 +295,7 @@ mm_t* kMmCopy(mm_t* poSrc)
 	poNew->qwCodeEnd	= poSrc->qwCodeEnd;
 	poNew->qwBrk		= poSrc->qwBrk;
 
-	// 부모의 PTE를 고쳤으므로 부모가 돌고 있는 CR3의 TLB를 버려야 한다
+	// 부모 PTE를 고쳤으므로 TLB를 버린다
 	kWriteCR3(kReadCR3());
 	return poNew;
 }

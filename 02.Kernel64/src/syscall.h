@@ -19,10 +19,9 @@
 #define SYS_EXIT		60
 #define SYS_UPTIME		201		// 커널 자체 확장(틱 수)
 
-// 유저 버퍼를 한 번에 커널로 들이는 최대 길이
 #define SYS_WRITE_MAX	256
 
-// 실패는 -errno. 리눅스와 같은 규약이라 유저측 래퍼가 그대로 통한다
+// 실패는 -errno (리눅스 규약)
 #define SYS_EBADF		9
 #define SYS_EFAULT		14
 #define SYS_ENOSYS		38
@@ -30,7 +29,6 @@
 #define SYS_ENOMEM		12
 
 
-// 저장된 레지스터 프레임(Context_t 레이아웃)을 받아 RAX 자리에 결과를 쓴다
 void kSyscallHandler(QWORD* pqwRegs);
 QWORD kGetSyscallCount(void);
 

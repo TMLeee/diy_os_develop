@@ -58,7 +58,6 @@ static slab_t* kSlabGrow(kmem_cache_t* poCache)
 		return NULL;
 	}
 
-	// slab 머리와 객체 배열은 프레임 안에 있다. direct map으로 만진다
 	poSlab = (slab_t*)__va(qwPhys);
 	kMemSet(poSlab, 0, sizeof(slab_t));
 	kListInit(&(poSlab->stLink));
@@ -225,7 +224,6 @@ void kKmemCacheFree(kmem_cache_t* poCache, void* pvObj)
 		return;
 	}
 
-	// direct map으로 받아도 되도록 물리주소(=identity 주소)로 정규화한다
 	qwAddr = __pa(pvObj);
 	poPage = kPhysToPage(qwAddr);
 	if((NULL == poPage) || (0 == (poPage->qwFlags & PG_SLAB))) {

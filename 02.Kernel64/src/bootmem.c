@@ -93,7 +93,6 @@ void* kBootmemAlloc(QWORD qwSize)
 	g_qwBootmemNext += qwSize;
 
 	// 물리 프레임을 direct map을 통해 만진다. 반환값도 가상주소다 -
-	// 호출자는 이걸 그대로 역참조하므로 identity 맵이 사라져도 유효해야 한다
 	kMemSet(__va(qwAddr), 0, (int)qwSize);
 	return __va(qwAddr);
 }

@@ -68,7 +68,6 @@ int kWalkPageTable(QWORD qwCR3, QWORD qwVirtAddr, pte_t* pvqEntry)
 		pvqEntry[i] = 0;
 	}
 
-	// 테이블 엔트리는 물리주소다. 걷는 쪽은 direct map으로 본다
 	poTable = (pte_t*)__va(PTE_ADDR(qwCR3));
 	qwEntry = poTable[PML4_INDEX(qwVirtAddr)];
 	pvqEntry[0] = qwEntry;
@@ -183,9 +182,9 @@ void kDumpPageWalk(QWORD qwCR3, QWORD qwVirtAddr)
 
 
 // 중간 테이블을 따라가며 필요하면 새로 만든다. 반환값은 direct map 주소다.
-// 중간 레벨은 항상 P|RW로 두고 제약은 리프 PTE에만 건다. x86-64는 네 레벨의
-// 권한을 AND하므로 중간에서 RW를 빼면 그 아래 전부가 읽기 전용이 된다.
-// US만 요청대로 전파하고, 이미 있는 엔트리는 US를 올려 준다(리눅스와 같다)
+// 중간 레벨은 항상 P|RW다. x86-64가 네 레벨을 AND하므로 여기서 RW를 빼면
+// 그 아래 전부가 읽기 전용이 된다. US만 요청대로 전파한다
+
 static pte_t* kGetNextLevel(pte_t* poTable, QWORD qwIndex, BOOL bAlloc, QWORD qwUS)
 {
 	QWORD qwFrame;
@@ -200,18 +199,13 @@ static pte_t* kGetNextLevel(pte_t* poTable, QWORD qwIndex, BOOL bAlloc, QWORD qw
 		if(0 == qwFrame) {
 			return NULL;
 		}
-		// 엔트리에는 물리주소가 들어가고(CPU가 걷는다), 내용을 지우는 것은
-		// direct map을 통해 한다
 		kMemSet(__va(qwFrame), 0, PAGE_SIZE);
 		poTable[qwIndex] = qwFrame | PTE_P | PTE_RW | qwUS;
 	}
 	else if(poTable[qwIndex] & PTE_PS) {
-		// 이미 2MB/1GB 페이지로 잡혀 있으면 여기서는 쪼개지 않는다
 		return NULL;
 	}
 	else {
-		// 커널 매핑이 먼저 만들어 둔 테이블 아래에 유저 페이지가 들어오는 경우.
-		// 리프에 US가 없으면 여전히 커널 전용이므로 안전하다
 		poTable[qwIndex] |= qwUS;
 	}
 
@@ -270,8 +264,6 @@ void kUnmapPage(QWORD qwCR3, QWORD qwVirtAddr)
 }
 
 
-// 2MB 페이지로 [qwVirtAddr, +qwSize)를 매핑한다. 중간 테이블만 4KB 프레임을
-// 쓰고 리프는 PS=1이므로 64MB를 매핑해도 테이블이 몇 장 안 든다
 static BOOL kMapRange2M(QWORD qwCR3, QWORD qwVirtAddr, QWORD qwPhysAddr,
 		QWORD qwSize, QWORD qwFlags)
 {
@@ -351,14 +343,9 @@ static BOOL kProtectKernelImage(QWORD qwCR3, QWORD qwNXFlag)
 }
 
 
-// PML4 엔트리 하나가 덮는 범위
 #define PML4_SPAN	(1UL << 39)
 
 
-// vmalloc 매핑은 부팅이 끝난 뒤 처음 생긴다. 그때 PML4 엔트리가 새로 만들어지면
-// 이미 커널 절반을 복사해 간 주소공간에는 반영되지 않는다(리눅스가
-// sync_global_pgds로 푸는 문제). 엔트리를 미리 다 만들어 두면 이후로는 PDPT
-// 아래로만 자라고, 그 PDPT는 복사된 엔트리가 가리키는 같은 프레임이라 공유된다
 static BOOL kPreallocKernelPML4(QWORD qwPML4)
 {
 	pte_t* poTable = (pte_t*)__va(PTE_ADDR(qwPML4));
@@ -379,8 +366,6 @@ BOOL kInitializePaging(void)
 	DWORD dwEAX, dwEBX, dwECX, dwEDX;
 	QWORD qwEFER, qwCR0;
 
-	// NX 지원 확인. 지원하지 않는데 PTE_NX를 세우면 예약 비트 위반으로
-	// 모든 매핑이 #PF가 된다
 	kReadCPUID(0x80000001, &dwEAX, &dwEBX, &dwECX, &dwEDX);
 	g_bNXSupported = (dwEDX & (1 << 20)) ? TRUE : FALSE;
 

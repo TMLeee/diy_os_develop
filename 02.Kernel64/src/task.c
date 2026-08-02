@@ -22,8 +22,6 @@ static void kSwitchKernelStack(TCB_t* poNext);
 static Scheduler_t gstScheduler;
 static TcbPoolManager_t gstTCBPoolManager;
 
-// 풀의 '주소'만 할당자에서 받는다. 인덱스 산술과 qwID 인코딩은 그대로 두어
-// kAllocateTCB/kFreeTCB/kCreateTask의 계약이 바뀌지 않게 한다
 BOOL kInitializeTCBPool(void)
 {
 	QWORD qwTCBSize = ALIGN_UP(sizeof(TCB_t) * TASK_MAX_CNT, PAGE_SIZE);
@@ -44,7 +42,6 @@ BOOL kInitializeTCBPool(void)
 		return FALSE;
 	}
 
-	// TCB 풀은 프레임이다. direct map으로 접근한다
 	gstTCBPoolManager.poStartAddr = (TCB_t*)__va(qwTCBAddr);
 	kMemSet(__va(qwTCBAddr), 0, (int)(sizeof(TCB_t) * TASK_MAX_CNT));
 
@@ -128,8 +125,7 @@ TCB_t* kCreateTask(QWORD qwFlag, QWORD qwEntryPointAddr)
 }
 
 
-// ring3 태스크. kCreateTask와 다른 점은 세그먼트가 유저 셀렉터이고 RSP가
-// 유저 스택이라는 것뿐이다. vmalloc 스택은 여기서 커널 스택 역할을 한다
+// ring3 태스크. vmalloc 스택이 여기서는 커널 스택이다
 TCB_t* kCreateUserTask(mm_t* poMm, QWORD qwEntryAddr, QWORD qwUserStackTop)
 {
 	TCB_t* poTask;
@@ -159,12 +155,10 @@ TCB_t* kCreateUserTask(mm_t* poMm, QWORD qwEntryAddr, QWORD qwUserStackTop)
 	poTask->tContext.vqRegister[TASK_GS_OFFSET] = GDT_USER_DATA_SELECTOR;
 	poTask->tContext.vqRegister[TASK_SS_OFFSET] = GDT_USER_DATA_SELECTOR;
 
-	// kSetupTask가 넣어 둔 커널 스택 대신 유저 스택을 쓴다
 	poTask->tContext.vqRegister[TASK_RSP_OFFSET] = qwUserStackTop;
 	poTask->tContext.vqRegister[TASK_RBP_OFFSET] = qwUserStackTop;
 
-	// 리스트에 올리기 전에 주소공간을 붙여야 한다. 순서가 바뀌면 첫 스케줄에서
-	// 커널 CR3로 유저 코드를 실행하러 간다
+	// 리스트에 올리기 전에 붙여야 한다. 아니면 첫 스케줄이 커널 CR3로 간다
 	kSetTaskMm(poTask, poMm);
 	kAddTaskToReadyList(poTask);
 
@@ -172,9 +166,8 @@ TCB_t* kCreateUserTask(mm_t* poMm, QWORD qwEntryAddr, QWORD qwUserStackTop)
 }
 
 
-// fork. 부모의 시스템콜 프레임을 그대로 자식 컨텍스트로 옮긴다. int 0x80은
-// 에러코드가 없어서 그 프레임이 정확히 Context_t 레이아웃이라 가능한 일이다.
-// 자식은 RAX가 0이라 같은 명령 다음 줄에서 다른 값을 보고 깨어난다
+// 부모의 시스템콜 프레임을 자식 컨텍스트로 옮긴다. int 0x80은 에러코드가
+// 없어 그 프레임이 정확히 Context_t다. 자식만 RAX가 0이다
 TCB_t* kForkTask(mm_t* poMm, QWORD* pqwFrame)
 {
 	TCB_t* poChild;
@@ -209,8 +202,7 @@ TCB_t* kForkTask(mm_t* poMm, QWORD* pqwFrame)
 }
 
 
-// 주소공간을 가진 태스크를 전부 끝낸다. 시험이 fork로 만든 자식까지 걷어낼
-// 방법이 필요해서 둔다
+// 주소공간을 가진 태스크를 전부 끝낸다. fork가 만든 자식까지 걷어내려고 둔다
 int kEndAllUserTasks(void)
 {
 	TCB_t* poTask;
@@ -240,8 +232,7 @@ void kFreeTask(TCB_t* poTask)
 	poTask->pvStackAddr = NULL;
 	poTask->qwStackSize = 0;
 
-	// 유저 태스크는 자기 주소공간을 소유한다. fork가 만든 자식의 mm은 아무도
-	// 들고 있지 않으므로 여기서 정리하지 않으면 새어나간다
+	// 유저 태스크가 자기 주소공간을 소유한다. fork한 자식의 mm은 여기서만 정리된다
 	if(NULL != poTask->poMM) {
 		kMmDestroy(poTask->poMM);
 		poTask->poMM = NULL;
@@ -252,9 +243,8 @@ void kFreeTask(TCB_t* poTask)
 }
 
 
-// 자기 자신을 끝낸다. 폴트 핸들러가 iretq 복귀 지점을 여기로 바꿔서 들어온다.
-// 자기 커널 스택 위에서 돌지만 그 스택을 여기서 반납할 수는 없으므로 DEAD로
-// 표시만 하고, 반납은 kEndTask가 대신 한다
+// 폴트 핸들러가 복귀 지점을 여기로 바꿔서 들어온다.
+// 자기 스택 위에서 도니 반납은 못 한다. DEAD만 찍고 kEndTask가 치운다
 void kExitTask(void)
 {
 	TCB_t* poTask;
@@ -275,12 +265,10 @@ void kExitTask(void)
 			kSwitchKernelStack(poNext);
 			gstScheduler.iProcessorTime = TASK_PROCESSOR_TIME;
 
-			// 죽은 태스크의 컨텍스트에 저장한다. 다시 읽히는 일은 없다.
-			// ready 리스트에 넣지 않았으므로 여기로 돌아오지 않는다
+			// ready 리스트에 없으므로 여기로 돌아오지 않는다
 			kSwitchContext(&(poTask->tContext), &(poNext->tContext));
 		}
 
-		// 돌릴 태스크가 없으면 인터럽트를 기다린다
 		kSetInterruptFlag(TRUE);
 		kHlt();
 		kSetInterruptFlag(FALSE);
@@ -307,7 +295,7 @@ BOOL kEndTask(QWORD qwTaskID)
 		return FALSE;
 	}
 
-	// 스스로 죽은 태스크는 ready 리스트에 없다. 그때는 바로 반납한다
+	// 스스로 죽은 태스크는 ready 리스트에 없다
 	if(0 != (poTarget->qwFlag & TASK_FLAG_DEAD)) {
 		kFreeTask(poTarget);
 		return TRUE;
@@ -346,7 +334,6 @@ void kSetupTask(TCB_t* poTCB, QWORD qwFlag, QWORD qwEntryPointAddr, void* poStac
 	// 인터럽트 활성화
 	poTCB->tContext.vqRegister[TASK_RFLAGS_OFFSET] |= 0x0200;
 
-	// 기본은 커널 스레드다. 유저 태스크는 kSetTaskMm으로 주소공간을 붙인다
 	poTCB->poMM = NULL;
 	poTCB->qwCR3 = 0;
 
@@ -406,11 +393,8 @@ void kSetTaskMm(TCB_t* poTask, mm_t* poMm)
 }
 
 
-// 커널 스레드(qwCR3==0)는 현재 주소공간을 그대로 빌려 쓴다. 커널 절반이 모든
-// 주소공간에서 동일하므로 안전하고, 전환마다 TLB를 비우지 않아도 된다
-// int 0x80은 IST를 쓰지 않으므로 ring3에서 들어오면 CPU가 TSS.rsp0를 집는다.
-// 태스크마다 커널 스택이 다르니 전환할 때마다 갱신해야 한다.
-// 커널 스레드는 스택이 없거나(부팅 스택) ring3로 내려갈 일이 없어 건너뛴다
+// 커널 스레드(qwCR3==0)는 현재 주소공간을 빌려 쓴다(lazy TLB)
+// int 0x80은 IST0이라 ring3에서 들어오면 CPU가 TSS.rsp0를 집는다
 static void kSwitchKernelStack(TCB_t* poNext)
 {
 	if(NULL != poNext->pvStackAddr) {
@@ -471,7 +455,6 @@ BOOL kScheduleInInterrunt(void)
 	}
 
 	// Switch Task
-	// IST 스택은 direct map으로 만진다. TSS에 넣은 값과 같은 별칭이어야 한다
 	pcContextAddr = (char*)__va(IST_START_ADDR + IST_SIZE) - sizeof(Context_t);
 
 	poRunningTask = gstScheduler.poRunningTask;
@@ -481,7 +464,6 @@ BOOL kScheduleInInterrunt(void)
 	gstScheduler.poRunningTask = poNextTask;
 	kMemCpy(pcContextAddr, &(poNextTask->tContext), sizeof(Context_t));
 
-	// IST 스택과 복귀 경로는 커널 절반에 있으므로 여기서 CR3를 바꿔도 된다
 	kSwitchAddressSpace(poNextTask);
 	kSwitchKernelStack(poNextTask);
 

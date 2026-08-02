@@ -65,10 +65,9 @@ typedef struct kElf64Phdr {
 #pragma pack (pop)
 
 
-// 이미지가 이 커널에서 실행 가능한 형태인지
 BOOL kElfIsValid(const BYTE* pbImage, QWORD qwSize);
 
-// poMm에 PT_LOAD 세그먼트를 올리고 진입점을 돌려준다. 실패하면 0
+// PT_LOAD를 올리고 진입점을 돌려준다. 실패하면 0
 QWORD kElfLoad(mm_t* poMm, const BYTE* pbImage, QWORD qwSize);
 
 #endif

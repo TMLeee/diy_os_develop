@@ -46,7 +46,7 @@
 
 #define TASK_MAX_CNT			1024
 
-// qwFlag 비트. 스스로 끝낸 태스크는 ready 리스트에 없으므로 표시가 필요하다
+// 스스로 끝낸 태스크는 ready 리스트에 없으므로 표시가 필요하다
 #define TASK_FLAG_DEAD			0x8000000000000000UL
 
 // 리눅스 THREAD_SIZE와 같은 16KB. 스택마다 아래에 매핑하지 않은 페이지를
@@ -85,7 +85,6 @@ typedef struct kTaskControlBlockStruct{
 	void* pvStackAddr;
 	QWORD qwStackSize;
 
-	// 주소공간. 커널 스레드는 둘 다 0이고 현재 CR3를 그대로 빌려 쓴다
 	mm_t* poMM;
 	QWORD qwCR3;
 }TCB_t;

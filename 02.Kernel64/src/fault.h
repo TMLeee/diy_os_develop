@@ -21,8 +21,7 @@
 #define PF_ERR_FETCH	0x10		// 명령어 인출
 
 
-// 처리했으면 TRUE. FALSE면 호출자가 기존 패닉 경로로 넘긴다.
-// pqwFrame은 에러코드 예외 레이아웃이라 RIP 이후가 한 칸 밀려 있다
+// 처리했으면 TRUE. FALSE면 호출자가 패닉 경로로 넘긴다
 BOOL kDoPageFault(QWORD qwErrCode, QWORD qwCR2, QWORD* pqwFrame);
 
 QWORD kGetKilledTaskCount(void);

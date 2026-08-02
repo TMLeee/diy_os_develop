@@ -17,9 +17,7 @@
 #include "assembly_utils.h"
 
 
-// 에러코드가 있는 예외는 프레임이 한 칸 밀린다. KSAVECONTEXT가 rbp를 먼저
-// 밀어 넣고, CPU가 남긴 에러코드가 원래 RIP가 있을 자리를 차지한다.
-// ds/es/fs/gs는 프레임 바닥이라 밀리지 않는다
+// 에러코드 예외는 RIP부터 한 칸 밀린다. ds/es/fs/gs는 프레임 바닥이라 그대로다
 #define PF_RIP_OFFSET		(TASK_RIP_OFFSET + 1)
 #define PF_CS_OFFSET		(TASK_CS_OFFSET + 1)
 #define PF_RFLAGS_OFFSET	(TASK_RFLAGS_OFFSET + 1)
@@ -35,8 +33,7 @@ static QWORD g_qwCowCopies = 0;
 static QWORD g_qwCowReuses = 0;
 
 
-// VMA는 있는데 페이지가 없다 = 익명 페이지 지연 할당. 리눅스가 익명 매핑에
-// 하는 것과 같다 - 주소공간을 잡을 때가 아니라 처음 건드릴 때 프레임을 준다
+// VMA는 있는데 프레임이 없다. 처음 건드릴 때 붙인다
 static BOOL kAnonymousFault(mm_t* poMm, vm_area_t* poVma, QWORD qwCR2)
 {
 	QWORD qwVirtAddr = PAGE_ALIGN_DOWN(qwCR2);
@@ -47,7 +44,7 @@ static BOOL kAnonymousFault(mm_t* poMm, vm_area_t* poVma, QWORD qwCR2)
 		return FALSE;
 	}
 
-	// 반드시 0으로 준다. 안 그러면 앞서 이 프레임을 쓰던 쪽의 내용이 샌다
+	// 0으로 주지 않으면 이전 소유자의 내용이 샌다
 	kMemSet(__va(qwPhys), 0, PAGE_SIZE);
 
 	if(FALSE == kMmMapPage(poMm, qwVirtAddr, qwPhys, poVma->qwFlags)) {
@@ -55,15 +52,13 @@ static BOOL kAnonymousFault(mm_t* poMm, vm_area_t* poVma, QWORD qwCR2)
 		return FALSE;
 	}
 
-	// 이 VA로 not-present가 TLB에 캐시돼 있을 수 있다
 	kInvlpg(qwVirtAddr);
 	++g_qwDemandPages;
 	return TRUE;
 }
 
 
-// VMA는 쓰기를 허용하는데 PTE에 RW가 없다 = kMmCopy가 강등해 둔 COW 페이지.
-// 참조가 하나뿐이면 복사할 이유가 없다. 그냥 쓰기 권한을 돌려준다
+// 참조가 하나뿐이면 복사하지 않고 쓰기 권한만 돌려준다
 static BOOL kCowFault(mm_t* poMm, vm_area_t* poVma, QWORD qwCR2)
 {
 	QWORD qwVirtAddr = PAGE_ALIGN_DOWN(qwCR2);
@@ -95,16 +90,13 @@ static BOOL kCowFault(mm_t* poMm, vm_area_t* poVma, QWORD qwCR2)
 	}
 	kInvlpg(qwVirtAddr);
 
-	// 공유를 하나 끊는다. 남은 쪽이 혼자가 되면 다음 폴트는 복사 없이 끝난다
 	kPagePut(qwOldPhys);
 	++g_qwCowCopies;
 	return TRUE;
 }
 
 
-// 폴트를 낸 유저 태스크를 끝낸다. 여기서 직접 태스크를 바꾸지 않고 iretq가
-// 돌아갈 자리만 커널 모드의 kExitTask로 바꿔 둔다. 그러면 복귀 경로가
-// 평소와 똑같이 유지되고, 정리는 자기 커널 스택 위에서 안전하게 돈다
+// 태스크를 여기서 바꾸지 않고 iretq가 돌아갈 자리만 kExitTask로 바꾼다
 static void kKillFaultingTask(QWORD* pqwFrame, TCB_t* poTask)
 {
 	pqwFrame[PF_RIP_OFFSET]		= (QWORD)kExitTask;
@@ -113,7 +105,6 @@ static void kKillFaultingTask(QWORD* pqwFrame, TCB_t* poTask)
 	pqwFrame[PF_RSP_OFFSET]		= (QWORD)poTask->pvStackAddr + poTask->qwStackSize;
 	pqwFrame[PF_RFLAGS_OFFSET]	&= ~RFLAGS_IF;
 
-	// KLOADCONTEXT가 적재하는 값들도 커널 것으로 되돌린다
 	pqwFrame[TASK_DS_OFFSET] = GDT_KENNEL_DATA_SEGMENT;
 	pqwFrame[TASK_ES_OFFSET] = GDT_KENNEL_DATA_SEGMENT;
 	pqwFrame[TASK_FS_OFFSET] = GDT_KENNEL_DATA_SEGMENT;
@@ -142,15 +133,14 @@ BOOL kDoPageFault(QWORD qwErrCode, QWORD qwCR2, QWORD* pqwFrame)
 	TCB_t* poTask;
 	vm_area_t* poVma;
 
-	// 커널 모드 폴트는 전부 커널 버그다. 기존 덤프/패닉 경로로 넘긴다
+	// 커널 모드 폴트는 커널 버그다. 기존 패닉 경로로 넘긴다
 	if(0 == (qwErrCode & PF_ERR_USER)) {
 		return FALSE;
 	}
 
 	poTask = kGetRunningTask();
 
-	// 커널 스레드는 poMM이 NULL이다. 먼저 걸러내지 않으면 폴트 핸들러 안에서
-	// NULL을 역참조하며 두 번째 폴트가 난다
+	// 커널 스레드는 poMM이 NULL. 안 걸러내면 핸들러 안에서 또 폴트난다
 	if((NULL == poTask) || (NULL == poTask->poMM) || (NULL == poTask->pvStackAddr)) {
 		return FALSE;
 	}
@@ -180,7 +170,6 @@ BOOL kDoPageFault(QWORD qwErrCode, QWORD qwCR2, QWORD* pqwFrame)
 		return TRUE;
 	}
 
-	// 여기까지 왔는데 not-present면 정당한 접근인데 프레임이 없는 것이다
 	if(0 == (qwErrCode & PF_ERR_PRESENT)) {
 		if(TRUE == kAnonymousFault(poTask->poMM, poVma, qwCR2)) {
 			return TRUE;
@@ -190,8 +179,7 @@ BOOL kDoPageFault(QWORD qwErrCode, QWORD qwCR2, QWORD* pqwFrame)
 		return TRUE;
 	}
 
-	// present + write까지 왔다는 것은 VMA는 쓰기를 허용한다는 뜻이다(위에서
-	// 걸렀다). 즉 PTE만 RO인 상태 = COW다
+	// VMA는 쓰기를 허용하는데 PTE만 RO = COW
 	if(0 != (qwErrCode & PF_ERR_WRITE)) {
 		if(TRUE == kCowFault(poTask->poMM, poVma, qwCR2)) {
 			return TRUE;
