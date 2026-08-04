@@ -357,17 +357,17 @@ void kShowDateAndTime(const char* poParamBuff)
 
 void kTestTask1( void )
 {
-    BYTE bData;
-    int i = 0, iX = 0, iY = 0, iMargin;
+    BYTE bData = 0;
+    int i = 0, iX = 0, iY = 0, iMargin, j;
     CharStruct* pstScreen = ( CharStruct* ) CONSOLE_VIDEO_MEM_ADDR;
     TCB_t* pstRunningTask;
-    
+
     // 자신의 ID를 얻어서 화면 오프셋으로 사용
     pstRunningTask = kGetRunningTask();
     iMargin = ( pstRunningTask->stLink.qwID & 0xFFFFFFFF ) % 10;
-    
+
     // 화면 네 귀퉁이를 돌면서 문자 출력
-    while( 1 )
+    for( j = 0 ; j < 20000 ; j++ )
     {
         switch( i )
         {
@@ -408,10 +408,11 @@ void kTestTask1( void )
         pstScreen[ iY * CONSOLE_WIDTH + iX ].ucChar = bData;
         pstScreen[ iY * CONSOLE_WIDTH + iX ].ucAttr = bData & 0x0F;
         bData++;
-        
-        // 다른 태스크로 전환
-        kSchedule();
+
+        // 타이머가 선점하므로 직접 양보하지 않는다
     }
+
+    kExitTask();
 }
 
 
@@ -435,9 +436,8 @@ void kTestTask2( void )
         // 색깔 지정
         pstScreen[ iOffset ].ucAttr = ( iOffset % 15 ) + 1;
         i++;
-        
-        // 다른 태스크로 전환
-        kSchedule();
+
+        // 타이머가 선점하므로 직접 양보하지 않는다
     }
 }
 

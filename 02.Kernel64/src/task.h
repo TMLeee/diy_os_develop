@@ -75,6 +75,7 @@
 
 #define GET_PRIORITY(X)				((X) & 0xFF)
 #define SET_PRIORITY(X, PRIORITY)	((X) = ((X) & 0xFFFFFFFFFFFFFF00UL) | (PRIORITY))
+#define GET_TCB_OFFSET(X)			((X) & 0xFFFFFFFF)
 
 
 #pragma pack (push, 1)

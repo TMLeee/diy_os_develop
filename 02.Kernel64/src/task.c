@@ -92,7 +92,7 @@ void kFreeTCB(QWORD qwID)
 {
 	int i;
 
-	i = qwID & 0xFFFFFFFF;
+	i = GET_TCB_OFFSET(qwID);
 
 	kMemSet( &(gstTCBPoolManager.poStartAddr[i].tContext), 0, sizeof(Context_t));
 	gstTCBPoolManager.poStartAddr[i].stLink.qwID = i;
@@ -452,7 +452,7 @@ TCB_t* kRemoveTaskFromReadyList(QWORD qwTaskID)
 	TCB_t* poTarget;
 	BYTE ucPriority;
 
-	poTarget = kGetTCBInTCBPool((int)(qwTaskID & 0xFFFFFFFF));
+	poTarget = kGetTCBInTCBPool((int)GET_TCB_OFFSET(qwTaskID));
 	if((NULL == poTarget) || (poTarget->stLink.qwID != qwTaskID)) {
 		return NULL;
 	}
@@ -488,7 +488,7 @@ BOOL kChangePriority(QWORD qwTaskID, BYTE ucPriority)
 	// 준비 리스트에 없으면 TCB만 찾아서 값을 바꾼다
 	poTarget = kRemoveTaskFromReadyList(qwTaskID);
 	if(NULL == poTarget) {
-		poTarget = kGetTCBInTCBPool((int)(qwTaskID & 0xFFFFFFFF));
+		poTarget = kGetTCBInTCBPool((int)GET_TCB_OFFSET(qwTaskID));
 		if((NULL == poTarget) || (poTarget->stLink.qwID != qwTaskID)) {
 			kSetInterruptFlag(bPrevFlag);
 			return FALSE;
@@ -538,7 +538,7 @@ BOOL kIsTaskExist(QWORD qwID)
 {
 	TCB_t* poTCB;
 
-	poTCB = kGetTCBInTCBPool((int)(qwID & 0xFFFFFFFF));
+	poTCB = kGetTCBInTCBPool((int)GET_TCB_OFFSET(qwID));
 	if((NULL == poTCB) || (poTCB->stLink.qwID != qwID)) {
 		return FALSE;
 	}
