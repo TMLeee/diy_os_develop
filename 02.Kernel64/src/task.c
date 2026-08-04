@@ -14,6 +14,7 @@
 #include "vmalloc.h"
 #include "paging.h"
 #include "assembly_utils.h"
+#include "console.h"
 
 static void kSwitchAddressSpace(TCB_t* poNext);
 static void kSwitchKernelStack(TCB_t* poNext);
@@ -146,7 +147,7 @@ TCB_t* kCreateUserTask(mm_t* poMm, QWORD qwEntryAddr, QWORD qwUserStackTop)
 		return NULL;
 	}
 
-	kSetupTask(poTask, 0, qwEntryAddr, pvKernelStack, TASK_STACK_SIZE);
+	kSetupTask(poTask, TASK_FLAG_MEDIUM, qwEntryAddr, pvKernelStack, TASK_STACK_SIZE);
 
 	poTask->tContext.vqRegister[TASK_CS_OFFSET] = GDT_USER_CODE_SELECTOR;
 	poTask->tContext.vqRegister[TASK_DS_OFFSET] = GDT_USER_DATA_SELECTOR;
@@ -193,7 +194,7 @@ TCB_t* kForkTask(mm_t* poMm, QWORD* pqwFrame)
 
 	poChild->pvStackAddr	= pvKernelStack;
 	poChild->qwStackSize	= TASK_STACK_SIZE;
-	poChild->qwFlag			= 0;
+	poChild->qwFlag			= TASK_FLAG_MEDIUM;
 
 	kSetTaskMm(poChild, poMm);
 	kAddTaskToReadyList(poChild);
@@ -255,18 +256,25 @@ void kExitTask(void)
 	poTask = gstScheduler.poRunningTask;
 	if(NULL != poTask) {
 		poTask->qwFlag |= TASK_FLAG_DEAD;
+		SET_PRIORITY(poTask->qwFlag, TASK_FLAG_WAIT);
 	}
 
 	while(1) {
 		poNext = kGetNextTaskToRun();
 		if(NULL != poNext) {
+			// 주소공간이 없는 커널 스레드만 유휴 태스크가 회수한다. 주소공간을
+			// 가진 유저 태스크는 예전대로 kEndTask/kEndAllUserTasks가 걷어낸다
+			if((NULL != poTask) && (NULL == poTask->poMM)) {
+				kAddListToTail(&(gstScheduler.stWaitList), poTask);
+			}
+
 			gstScheduler.poRunningTask = poNext;
 			kSwitchAddressSpace(poNext);
 			kSwitchKernelStack(poNext);
 			gstScheduler.iProcessorTime = TASK_PROCESSOR_TIME;
 
 			// ready 리스트에 없으므로 여기로 돌아오지 않는다
-			kSwitchContext(&(poTask->tContext), &(poNext->tContext));
+			kSwitchContext(NULL, &(poNext->tContext));
 		}
 
 		kSetInterruptFlag(TRUE);
@@ -291,18 +299,26 @@ BOOL kEndTask(QWORD qwTaskID)
 			break;
 		}
 	}
-	if((NULL == poTarget) || (poTarget == gstScheduler.poRunningTask)) {
+	if(NULL == poTarget) {
 		return FALSE;
+	}
+
+	// 자기 자신을 끝내는 경우. 자기 스택 위에서는 반납할 수 없으니
+	// DEAD만 찍고 넘어가면 유휴 태스크가 대기 리스트에서 회수한다
+	if(poTarget == gstScheduler.poRunningTask) {
+		kExitTask();
+		return TRUE;
 	}
 
 	// 스스로 죽은 태스크는 ready 리스트에 없다
 	if(0 != (poTarget->qwFlag & TASK_FLAG_DEAD)) {
+		kRemoveList(&(gstScheduler.stWaitList), qwTaskID);
 		kFreeTask(poTarget);
 		return TRUE;
 	}
 
-	// ready 리스트에서 빼낸다
-	if(NULL == kRemoveList(&(gstScheduler.stReadyList), qwTaskID)) {
+	// 준비 리스트에서 빼낸다
+	if(NULL == kRemoveTaskFromReadyList(qwTaskID)) {
 		return FALSE;
 	}
 
@@ -346,12 +362,30 @@ void kSetupTask(TCB_t* poTCB, QWORD qwFlag, QWORD qwEntryPointAddr, void* poStac
 
 BOOL kInitializeScheduler(void)
 {
+	int i;
+
 	if(FALSE == kInitializeTCBPool()) {
 		return FALSE;
 	}
-	kInitializeList(&(gstScheduler.stReadyList));
+
+	for(i=0; i<TASK_MAX_READY_LIST_CNT; ++i) {
+		kInitializeList(&(gstScheduler.vstReadyList[i]));
+		gstScheduler.viExecuteCnt[i] = 0;
+	}
+	kInitializeList(&(gstScheduler.stWaitList));
+
 	gstScheduler.poRunningTask = kAllocateTCB();
-	return (NULL != gstScheduler.poRunningTask) ? TRUE : FALSE;
+	if(NULL == gstScheduler.poRunningTask) {
+		return FALSE;
+	}
+
+	// 부팅을 이어받는 셸이 가장 높은 우선 순위를 갖는다
+	gstScheduler.poRunningTask->qwFlag = TASK_FLAG_HIGHEST;
+	gstScheduler.iProcessorTime = TASK_PROCESSOR_TIME;
+	gstScheduler.qwProcessorLoad = 0;
+	gstScheduler.qwSpendProcessorTimeInIdleTask = 0;
+
+	return TRUE;
 }
 
 
@@ -367,19 +401,154 @@ TCB_t* kGetRunningTask(void)
 }
 
 
+// 큐에 태스크가 있어도 모든 큐가 한 바퀴씩 돌아 양보만 하고 끝날 수 있어
+// 한 번 더 훑는다
 TCB_t* kGetNextTaskToRun(void)
 {
-	if(0 == kGetListCount(&(gstScheduler.stReadyList))) {
-		return NULL;
+	TCB_t* poTarget = NULL;
+	int iTaskCnt;
+	int i, j;
+
+	for(j=0; j<2; ++j) {
+		for(i=0; i<TASK_MAX_READY_LIST_CNT; ++i) {
+			iTaskCnt = kGetListCount(&(gstScheduler.vstReadyList[i]));
+
+			// 실행한 횟수보다 대기 중인 태스크가 많으면 이 우선 순위에서 고른다
+			if(gstScheduler.viExecuteCnt[i] < iTaskCnt) {
+				poTarget = (TCB_t*)kRemoveListFromHead(&(gstScheduler.vstReadyList[i]));
+				++(gstScheduler.viExecuteCnt[i]);
+				break;
+			}
+
+			// 다 돌았으면 횟수를 접고 다음 우선 순위로 양보한다
+			gstScheduler.viExecuteCnt[i] = 0;
+		}
+
+		if(NULL != poTarget) {
+			break;
+		}
 	}
 
-	return (TCB_t*)kRemoveListFromHead(&(gstScheduler.stReadyList));
+	return poTarget;
 }
 
 
-void kAddTaskToReadyList(TCB_t* poTask)
+BOOL kAddTaskToReadyList(TCB_t* poTask)
 {
-	kAddListToTail(&(gstScheduler.stReadyList), poTask);
+	BYTE ucPriority;
+
+	ucPriority = GET_PRIORITY(poTask->qwFlag);
+	if(TASK_MAX_READY_LIST_CNT <= ucPriority) {
+		return FALSE;
+	}
+
+	kAddListToTail(&(gstScheduler.vstReadyList[ucPriority]), poTask);
+	return TRUE;
+}
+
+
+TCB_t* kRemoveTaskFromReadyList(QWORD qwTaskID)
+{
+	TCB_t* poTarget;
+	BYTE ucPriority;
+
+	poTarget = kGetTCBInTCBPool((int)(qwTaskID & 0xFFFFFFFF));
+	if((NULL == poTarget) || (poTarget->stLink.qwID != qwTaskID)) {
+		return NULL;
+	}
+
+	ucPriority = GET_PRIORITY(poTarget->qwFlag);
+	if(TASK_MAX_READY_LIST_CNT <= ucPriority) {
+		return NULL;
+	}
+
+	return (TCB_t*)kRemoveList(&(gstScheduler.vstReadyList[ucPriority]), qwTaskID);
+}
+
+
+BOOL kChangePriority(QWORD qwTaskID, BYTE ucPriority)
+{
+	TCB_t* poTarget;
+	BOOL bPrevFlag;
+
+	if(TASK_MAX_READY_LIST_CNT <= ucPriority) {
+		return FALSE;
+	}
+
+	bPrevFlag = kSetInterruptFlag(FALSE);
+
+	// 실행 중인 태스크는 값만 바꾼다. 다음 전환에서 바뀐 리스트로 들어간다
+	poTarget = gstScheduler.poRunningTask;
+	if(poTarget->stLink.qwID == qwTaskID) {
+		SET_PRIORITY(poTarget->qwFlag, ucPriority);
+		kSetInterruptFlag(bPrevFlag);
+		return TRUE;
+	}
+
+	// 준비 리스트에 없으면 TCB만 찾아서 값을 바꾼다
+	poTarget = kRemoveTaskFromReadyList(qwTaskID);
+	if(NULL == poTarget) {
+		poTarget = kGetTCBInTCBPool((int)(qwTaskID & 0xFFFFFFFF));
+		if((NULL == poTarget) || (poTarget->stLink.qwID != qwTaskID)) {
+			kSetInterruptFlag(bPrevFlag);
+			return FALSE;
+		}
+		SET_PRIORITY(poTarget->qwFlag, ucPriority);
+		kSetInterruptFlag(bPrevFlag);
+		return TRUE;
+	}
+
+	SET_PRIORITY(poTarget->qwFlag, ucPriority);
+	kAddTaskToReadyList(poTarget);
+	kSetInterruptFlag(bPrevFlag);
+	return TRUE;
+}
+
+
+int kGetReadyTaskCount(void)
+{
+	int iTotalCnt = 0;
+	int i;
+
+	for(i=0; i<TASK_MAX_READY_LIST_CNT; ++i) {
+		iTotalCnt += kGetListCount(&(gstScheduler.vstReadyList[i]));
+	}
+
+	return iTotalCnt;
+}
+
+
+int kGetTaskCount(void)
+{
+	return kGetReadyTaskCount() + kGetListCount(&(gstScheduler.stWaitList)) + 1;
+}
+
+
+TCB_t* kGetTCBInTCBPool(int iOffset)
+{
+	if((iOffset < 0) || (gstTCBPoolManager.iMaxCnt <= iOffset)) {
+		return NULL;
+	}
+
+	return &(gstTCBPoolManager.poStartAddr[iOffset]);
+}
+
+
+BOOL kIsTaskExist(QWORD qwID)
+{
+	TCB_t* poTCB;
+
+	poTCB = kGetTCBInTCBPool((int)(qwID & 0xFFFFFFFF));
+	if((NULL == poTCB) || (poTCB->stLink.qwID != qwID)) {
+		return FALSE;
+	}
+	return TRUE;
+}
+
+
+QWORD kGetProcessorLoad(void)
+{
+	return gstScheduler.qwProcessorLoad;
 }
 
 
@@ -419,7 +588,7 @@ void kSchedule(void)
 	TCB_t *poRunningTask, *poNextTask;
 	BOOL bPrevFlag;
 
-	if(0 == kGetListCount(&(gstScheduler.stReadyList))) {
+	if(kGetReadyTaskCount() < 1) {
 		return;
 	}
 
@@ -431,6 +600,13 @@ void kSchedule(void)
 	}
 
 	poRunningTask = gstScheduler.poRunningTask;
+
+	// 유휴 태스크에서 넘어왔다면 쓴 만큼을 부하 계산에 누적한다
+	if(TASK_FLAG_IDLE == (poRunningTask->qwFlag & TASK_FLAG_IDLE)) {
+		gstScheduler.qwSpendProcessorTimeInIdleTask +=
+				TASK_PROCESSOR_TIME - gstScheduler.iProcessorTime;
+	}
+
 	kAddTaskToReadyList(poRunningTask);
 
 	gstScheduler.iProcessorTime = TASK_PROCESSOR_TIME;
@@ -458,6 +634,12 @@ BOOL kScheduleInInterrunt(void)
 	pcContextAddr = (char*)__va(IST_START_ADDR + IST_SIZE) - sizeof(Context_t);
 
 	poRunningTask = gstScheduler.poRunningTask;
+
+	// 유휴 태스크에서 넘어왔다면 쓴 만큼을 부하 계산에 누적한다
+	if(TASK_FLAG_IDLE == (poRunningTask->qwFlag & TASK_FLAG_IDLE)) {
+		gstScheduler.qwSpendProcessorTimeInIdleTask += TASK_PROCESSOR_TIME;
+	}
+
 	kMemCpy(&(poRunningTask->tContext), pcContextAddr, sizeof(Context_t));
 	kAddTaskToReadyList(poRunningTask);
 
@@ -486,4 +668,70 @@ BOOL kIsProcessorTimeExpired(void)
 		return TRUE;
 	}
 	return FALSE;
+}
+
+
+// 대기 리스트에 쌓인 태스크를 회수하고 남는 시간에 프로세서를 쉬게 한다.
+// 남의 스택 위에서 도니 여기서는 스택까지 반납할 수 있다
+void kIdleTask(void)
+{
+	TCB_t* poTask;
+	QWORD qwLastMeasureTickCnt, qwLastSpendTickInIdleTask;
+	QWORD qwCurMeasureTickCnt, qwCurSpendTickInIdleTask;
+	BOOL bPrevFlag;
+
+	qwLastSpendTickInIdleTask = gstScheduler.qwSpendProcessorTimeInIdleTask;
+	qwLastMeasureTickCnt = kGetTickCnt();
+
+	while(1) {
+		qwCurMeasureTickCnt = kGetTickCnt();
+		qwCurSpendTickInIdleTask = gstScheduler.qwSpendProcessorTimeInIdleTask;
+
+		// 100 - (유휴 태스크가 쓴 시간 * 100 / 전체 시간)
+		if(qwCurMeasureTickCnt == qwLastMeasureTickCnt) {
+			gstScheduler.qwProcessorLoad = 0;
+		}
+		else {
+			gstScheduler.qwProcessorLoad = 100 -
+					((qwCurSpendTickInIdleTask - qwLastSpendTickInIdleTask) * 100 /
+					 (qwCurMeasureTickCnt - qwLastMeasureTickCnt));
+		}
+
+		qwLastMeasureTickCnt = qwCurMeasureTickCnt;
+		qwLastSpendTickInIdleTask = qwCurSpendTickInIdleTask;
+
+		kHaltProcessorByLoad();
+
+		while(0 < kGetListCount(&(gstScheduler.stWaitList))) {
+			bPrevFlag = kSetInterruptFlag(FALSE);
+			poTask = (TCB_t*)kRemoveListFromHead(&(gstScheduler.stWaitList));
+			kSetInterruptFlag(bPrevFlag);
+
+			if(NULL == poTask) {
+				break;
+			}
+
+			kPrintf("IDLE: Task ID[0x%q] is completely ended.\n", poTask->stLink.qwID);
+			kFreeTask(poTask);
+		}
+
+		kSchedule();
+	}
+}
+
+
+void kHaltProcessorByLoad(void)
+{
+	if(gstScheduler.qwProcessorLoad < 40) {
+		kHlt();
+		kHlt();
+		kHlt();
+	}
+	else if(gstScheduler.qwProcessorLoad < 80) {
+		kHlt();
+		kHlt();
+	}
+	else if(gstScheduler.qwProcessorLoad < 95) {
+		kHlt();
+	}
 }

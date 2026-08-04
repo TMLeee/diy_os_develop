@@ -60,6 +60,22 @@
 // max processing time(ms)
 #define TASK_PROCESSOR_TIME		5
 
+// 우선 순위별 준비 리스트의 수
+#define TASK_MAX_READY_LIST_CNT	5
+
+// 테스크 우선 순위. qwFlag의 하위 1바이트를 쓴다
+#define TASK_FLAG_HIGHEST		0
+#define TASK_FLAG_HIGH			1
+#define TASK_FLAG_MEDIUM		2
+#define TASK_FLAG_LOW			3
+#define TASK_FLAG_LOWEST		4
+#define TASK_FLAG_WAIT			0xFF
+
+#define TASK_FLAG_IDLE			0x0800000000000000UL
+
+#define GET_PRIORITY(X)				((X) & 0xFF)
+#define SET_PRIORITY(X, PRIORITY)	((X) = ((X) & 0xFFFFFFFFFFFFFF00UL) | (PRIORITY))
+
 
 #pragma pack (push, 1)
 
@@ -109,7 +125,15 @@ typedef struct kSchedulerStruct {
 
 	int iProcessorTime;
 
-	List_t stReadyList;
+	// 우선 순위별 준비 리스트와 각 우선 순위의 실행 횟수
+	List_t vstReadyList[TASK_MAX_READY_LIST_CNT];
+	int viExecuteCnt[TASK_MAX_READY_LIST_CNT];
+
+	// 회수를 기다리는 태스크
+	List_t stWaitList;
+
+	QWORD qwProcessorLoad;
+	QWORD qwSpendProcessorTimeInIdleTask;
 }Scheduler_t;
 
 #pragma pack (pop)
@@ -133,10 +157,21 @@ BOOL kInitializeScheduler(void);
 void kSetRunningTask(TCB_t *poTask);
 TCB_t* kGetRunningTask(void);
 TCB_t* kGetNextTaskToRun(void);
-void kAddTaskToReadyList(TCB_t* poTask);
+BOOL kAddTaskToReadyList(TCB_t* poTask);
+TCB_t* kRemoveTaskFromReadyList(QWORD qwTaskID);
+BOOL kChangePriority(QWORD qwTaskID, BYTE ucPriority);
 void kSchedule(void);
 BOOL kScheduleInInterrunt(void);
 void kDecreaseProcessorTime(void);
 BOOL kIsProcessorTimeExpired(void);
+int kGetReadyTaskCount(void);
+int kGetTaskCount(void);
+TCB_t* kGetTCBInTCBPool(int iOffset);
+BOOL kIsTaskExist(QWORD qwID);
+QWORD kGetProcessorLoad(void);
+
+// 유휴 태스크 관련
+void kIdleTask(void);
+void kHaltProcessorByLoad(void);
 
 #endif /* 02_KERNEL64_SRC_TASK_H_ */

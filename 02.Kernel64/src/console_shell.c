@@ -40,6 +40,10 @@ ShellCmdEntry_t gtCommandTable[] =
 		{"cpuspeed", "Measure Processor Speed", kMeasureProcessorSpeed},
 		{"date", "Show Data and Time", kShowDateAndTime},
 		{"createtask", "Create Task, ex)createtask 1(type) 10(count)", kCreateTestTask},
+		{"changepriority", "Change Task Priority, ex)changepriority 1(ID) 2(priority)", kChangeTaskPriority},
+		{"tasklist", "Show Task List", kShowTaskList},
+		{"killtask", "End Task, ex)killtask 1(ID)", kKillTask},
+		{"cpuload", "Show Processor Load", kCPULoad},
 		{"crash", "Raise an exception, ex)crash div0|pf|gp|ud|wtext|xdata", kCrash},
 		{"memmap", "Show E820 Physical Memory Map", kShowMemoryMap},
 		{"pmemstat", "Show Physical Frame Allocator Stat", kShowPhysMemStat},
@@ -456,7 +460,7 @@ void kCreateTestTask(const char* poParamBuff)
     case 1:
         for( i = 0 ; i < kAToI( vcCount, 10 ) ; i++ )
         {    
-            if( kCreateTask( 0, ( QWORD ) kTestTask1 ) == NULL )
+            if( kCreateTask( TASK_FLAG_LOW, ( QWORD ) kTestTask1 ) == NULL )
             {
                 break;
             }
@@ -470,7 +474,7 @@ void kCreateTestTask(const char* poParamBuff)
     default:
         for( i = 0 ; i < kAToI( vcCount, 10 ) ; i++ )
         {    
-            if( kCreateTask( 0, ( QWORD ) kTestTask2 ) == NULL )
+            if( kCreateTask( TASK_FLAG_LOW, ( QWORD ) kTestTask2 ) == NULL )
             {
                 break;
             }
@@ -479,6 +483,97 @@ void kCreateTestTask(const char* poParamBuff)
         kPrintf( "Task2 %d Created\n", i );
         break;
     }
+}
+
+
+void kChangeTaskPriority(const char* poParamBuff)
+{
+	ParamList_t stList;
+	char vcID[30];
+	char vcPriority[30];
+	QWORD qwID;
+	BYTE ucPriority;
+
+	kInitializeParam(&stList, poParamBuff);
+	kGetNextParam(&stList, vcID);
+	kGetNextParam(&stList, vcPriority);
+
+	if(0 == kMemCmp(vcID, "0x", 2)) {
+		qwID = kAToI(vcID + 2, 16);
+	}
+	else {
+		qwID = kAToI(vcID, 10);
+	}
+	ucPriority = kAToI(vcPriority, 10);
+
+	kPrintf("Change Task Priority ID[0x%q] Priority[%d] ", qwID, ucPriority);
+	if(TRUE == kChangePriority(qwID, ucPriority)) {
+		kPrintf("Success\n");
+	}
+	else {
+		kPrintf("Fail\n");
+	}
+}
+
+
+void kShowTaskList(const char* poParamBuff)
+{
+	int i;
+	int iCnt = 0;
+	TCB_t* poTCB;
+
+	kPrintf("=========== Task Total Count [%d] ===========\n", kGetTaskCount());
+	for(i=0; i<TASK_MAX_CNT; ++i) {
+		poTCB = kGetTCBInTCBPool(i);
+		if((NULL == poTCB) || (0 == (poTCB->stLink.qwID >> 32))) {
+			continue;
+		}
+
+		// 10개마다 계속 볼지 확인
+		if((0 != iCnt) && (0 == (iCnt % 10))) {
+			kPrintf("Press any key to continue... ('q' is exit) : ");
+			if('q' == kGetch()) {
+				kPrintf("\n");
+				break;
+			}
+			kPrintf("\n");
+		}
+
+		kPrintf("[%d] Task ID[0x%Q], Priority[%d], Flags[0x%Q]\n", 1 + iCnt++,
+				poTCB->stLink.qwID, GET_PRIORITY(poTCB->qwFlag), poTCB->qwFlag);
+	}
+}
+
+
+void kKillTask(const char* poParamBuff)
+{
+	ParamList_t stList;
+	char vcID[30];
+	QWORD qwID;
+
+	kInitializeParam(&stList, poParamBuff);
+	kGetNextParam(&stList, vcID);
+
+	if(0 == kMemCmp(vcID, "0x", 2)) {
+		qwID = kAToI(vcID + 2, 16);
+	}
+	else {
+		qwID = kAToI(vcID, 10);
+	}
+
+	kPrintf("Kill Task ID[0x%q] ", qwID);
+	if(TRUE == kEndTask(qwID)) {
+		kPrintf("Success\n");
+	}
+	else {
+		kPrintf("Fail\n");
+	}
+}
+
+
+void kCPULoad(const char* poParamBuff)
+{
+	kPrintf("Processor Load : %d%%\n", kGetProcessorLoad());
 }
 
 

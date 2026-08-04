@@ -67,7 +67,7 @@ void* kRemoveList(List_t* poList, QWORD qwID)
     {
         if(qwID == poLink->qwID) {
             if((poLink == poList->poHead) &&
-                (poList == poList->poTail)) {
+                (poLink == poList->poTail)) {
                     poList->poHead  = NULL;
                     poList->poTail  = NULL;
             }
@@ -76,6 +76,7 @@ void* kRemoveList(List_t* poList, QWORD qwID)
             }
             else if(poLink == poList->poTail) {
                 poList->poTail = poPrevLink;
+                poPrevLink->poNext = NULL;
             }
             else {
                 poPrevLink->poNext = poLink->poNext;
